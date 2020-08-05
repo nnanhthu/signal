@@ -124,7 +124,7 @@ func (s *Signaler) removeConn() {
 	s.conn = nil
 }
 
-func (s *Signaler) closeConn() {
+func (s *Signaler) CloseConn() {
 	if conn := s.getConn(); conn != nil {
 		if err := conn.Disconnect(); err != nil {
 			s.error(err.Error())
@@ -133,7 +133,7 @@ func (s *Signaler) closeConn() {
 	s.removeConn()
 }
 
-func (s *Signaler) connectConn() error {
+func (s *Signaler) ConnectConn() error {
 	u := s.getURL()
 	// Can set readChannelCapacity, writeChannelCapacity through options when calling Dial
 	conn, err := stomp.Dial("tcp", u)
@@ -148,9 +148,9 @@ func (s *Signaler) connectConn() error {
 	return nil
 }
 
-func (s *Signaler) restartConn() {
-	s.closeConn()
-	if err := s.connectConn(); err != nil {
+func (s *Signaler) RestartConn() {
+	s.CloseConn()
+	if err := s.ConnectConn(); err != nil {
 		s.pushError(err.Error())
 	}
 }
@@ -169,20 +169,20 @@ func (s *Signaler) removeSubscription() {
 }
 
 // Subscribe to a destination on STOMP Server
-func (s *Signaler) subscribe(destination string) (*stomp.Subscription, error) {
+func (s *Signaler) Subscribe(destination string) (*stomp.Subscription, error) {
 	sub, err := s.conn.Subscribe(destination, stomp.AckClientIndividual)
 	if err != nil {
 		s.error(err.Error())
 		println("cannot subscribe to", destination, err.Error())
 		// Reconnect because at this time, server may be disconnect to client
-		s.connectConn()
+		s.ConnectConn()
 		return nil, err
 	}
 	return sub, nil
 }
 
 // Unsubscribe from a destination on STOMP Server
-func (s *Signaler) unsubscribe() {
+func (s *Signaler) Unsubscribe() {
 	if sub := s.getSubscription(); sub != nil {
 		if err := sub.Unsubscribe(); err != nil {
 			s.error(err.Error())
@@ -290,13 +290,13 @@ func (s *Signaler) pushError(err string) {
 
 // Proceed relating to message
 // Send msg to a destination (channel) on STOMP server
-func (s *Signaler) send(destination string, contentType string, data []byte) error {
+func (s *Signaler) Send(destination string, contentType string, data []byte) error {
 	if conn := s.getConn(); conn != nil {
 		s.mutex.Lock()
 		defer s.mutex.Unlock()
 		if err := conn.Send(destination, contentType, data, stomp.SendOpt.Receipt); err != nil {
 			//Reconnect because after server proceed failed, it'll disconnect to client
-			s.connectConn()
+			s.ConnectConn()
 			return err
 		}
 		return nil
@@ -345,7 +345,7 @@ func (s *Signaler) handleSendMsg(destination string, data interface{}) {
 		s.pushError(err.Error())
 		return
 	}
-	if err := s.send(destination, "text/plain", msg); err != nil {
+	if err := s.Send(destination, "text/plain", msg); err != nil {
 		s.pushError(err.Error())
 	}
 }
@@ -382,11 +382,11 @@ func (s *Signaler) pushCloseSignal() {
 }
 
 func (s *Signaler) handleRestart() {
-	s.restartConn()
+	s.RestartConn()
 }
 
 // Recv to get result from STOMP server
-func (s *Signaler) recv() ([]interface{}, error) {
+func (s *Signaler) Receive() ([]interface{}, error) {
 
 	var result []interface{}
 
@@ -394,6 +394,13 @@ func (s *Signaler) recv() ([]interface{}, error) {
 		resp, err := sub.Read()
 
 		if err != nil {
+			//Send NACK to notify server
+			if conn := s.getConn(); conn != nil {
+				err = conn.Nack(resp)
+				if err != nil {
+					return nil, err
+				}
+			}
 			return nil, fmt.Errorf("recv err: %v", err)
 		}
 
@@ -418,9 +425,9 @@ func (s *Signaler) recv() ([]interface{}, error) {
 }
 
 func (s *Signaler) reading() {
-	defer s.restartConn()
+	defer s.RestartConn()
 	for {
-		recv, err := s.recv()
+		recv, err := s.Receive()
 		if err != nil {
 			s.error(fmt.Sprintf("reading error: %v. Could be was throw signal. Restarting conn", err))
 			return
@@ -457,8 +464,8 @@ func (s *Signaler) serve() {
 
 func (s *Signaler) close() {
 	s.setClose(true)
-	s.unsubscribe()
-	s.closeConn()
+	s.Unsubscribe()
+	s.CloseConn()
 }
 
 // SendText to send data to wss
@@ -473,7 +480,7 @@ func (s *Signaler) Close() {
 
 // Start to running wss process
 func (s *Signaler) Start() error {
-	if err := s.connectConn(); err != nil {
+	if err := s.ConnectConn(); err != nil {
 		return err
 	}
 	go s.serve()
