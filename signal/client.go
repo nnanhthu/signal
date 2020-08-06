@@ -32,7 +32,7 @@ type SendObj struct {
 // Signaler to connect signal
 type Signaler struct {
 	url             string
-	Name            string              // signal name father or master or child
+	token           string              // token to authenticate with STOMP server
 	conn            *stomp.Conn         // handle connection
 	subscription    *stomp.Subscription // handle subscription
 	errChan         chan string         // err to reconnect
@@ -46,10 +46,10 @@ type Signaler struct {
 }
 
 // NewSignaler to create new signaler
-func NewSignaler(url string, processRecvData func([]interface{}), name string) *Signaler {
+func NewSignaler(url string, processRecvData func([]interface{}), token string) *Signaler {
 	signaler := &Signaler{
 		url:             url,
-		Name:            name,
+		token:           token,
 		processRecvData: processRecvData,
 		closeChann:      make(chan int),
 		msgChann:        make(chan []interface{}, 1000),
@@ -61,8 +61,8 @@ func NewSignaler(url string, processRecvData func([]interface{}), name string) *
 }
 
 // Getter, setter
-func (s *Signaler) getName() string {
-	return s.Name
+func (s *Signaler) getToken() string {
+	return s.token
 }
 
 func (s *Signaler) getClosechann() chan int {
@@ -111,6 +111,12 @@ func (s *Signaler) setClose(state bool) {
 	s.isClosed = state
 }
 
+func (s *Signaler) setToken(token string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.token = token
+}
+
 // Relating to connection
 func (s *Signaler) setConn(conn *stomp.Conn) {
 	s.mutex.Lock()
@@ -134,9 +140,14 @@ func (s *Signaler) CloseConn() {
 }
 
 func (s *Signaler) ConnectConn() error {
-	u := s.getURL()
+	url := s.getURL()
+	token := s.getToken()
 	// Can set readChannelCapacity, writeChannelCapacity through options when calling Dial
-	conn, err := stomp.Dial("tcp", u)
+	conn, err := stomp.Dial("tcp", url,
+		stomp.ConnOpt.AcceptVersion(stomp.V10),
+		stomp.ConnOpt.AcceptVersion(stomp.V11),
+		stomp.ConnOpt.AcceptVersion(stomp.V12),
+		stomp.ConnOpt.Header("authorization", token))
 
 	if err != nil {
 		println("cannot connect to server", err.Error())
@@ -144,7 +155,7 @@ func (s *Signaler) ConnectConn() error {
 	}
 	s.setConn(conn)
 	go s.reading()
-	s.info(fmt.Sprintf("Connecting to %s", u))
+	s.info(fmt.Sprintf("Connecting to %s", url))
 	return nil
 }
 
@@ -233,12 +244,12 @@ func (s *Signaler) handleCloseHandler(code int, text string) error {
 
 // info to export log info
 func (s *Signaler) info(v ...interface{}) {
-	log.Info(fmt.Sprintf("[%s] %v", s.getName(), v))
+	log.Info(fmt.Sprintf("[%s] %v", s.getToken(), v))
 }
 
 // error to export error info
 func (s *Signaler) error(v ...interface{}) {
-	log.Error(fmt.Sprintf("[%s] %v", s.getName(), v))
+	log.Error(fmt.Sprintf("[%s] %v", s.getToken(), v))
 }
 
 // close chans
