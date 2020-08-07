@@ -38,21 +38,21 @@ type Signaler struct {
 	errChan         chan string         // err to reconnect
 	closeChann      chan int            // close all sk
 	restartChann    chan int            // to handler restart msg
-	msgChann        chan []interface{}  // msg chann
+	msgChann        chan interface{}    // msg chann
 	sendMsgChann    chan interface{}    // send msg
-	processRecvData func([]interface{}) // to handle process when mess is coming
+	processRecvData func(interface{})   // to handle process when mess is coming
 	isClosed        bool                //
 	mutex           sync.Mutex          // handle concurrent
 }
 
 // NewSignaler to create new signaler
-func NewSignaler(url string, processRecvData func([]interface{}), token string) *Signaler {
+func NewSignaler(url string, processRecvData func(interface{}), token string) *Signaler {
 	signaler := &Signaler{
 		url:             url,
 		token:           token,
 		processRecvData: processRecvData,
 		closeChann:      make(chan int),
-		msgChann:        make(chan []interface{}, 1000),
+		msgChann:        make(chan interface{}, 1000),
 		errChan:         make(chan string, 10),
 		restartChann:    make(chan int, 10),
 		sendMsgChann:    make(chan interface{}, 1000),
@@ -81,11 +81,11 @@ func (s *Signaler) getErrchann() chan string {
 	return s.errChan
 }
 
-func (s *Signaler) getMsgchann() chan []interface{} {
+func (s *Signaler) getMsgchann() chan interface{} {
 	return s.msgChann
 }
 
-func (s *Signaler) getProcessRecvData() func([]interface{}) {
+func (s *Signaler) getProcessRecvData() func(interface{}) {
 	return s.processRecvData
 }
 
@@ -147,7 +147,7 @@ func (s *Signaler) ConnectConn() error {
 		stomp.ConnOpt.AcceptVersion(stomp.V10),
 		stomp.ConnOpt.AcceptVersion(stomp.V11),
 		stomp.ConnOpt.AcceptVersion(stomp.V12),
-		stomp.ConnOpt.Header("authorization", token))
+		stomp.ConnOpt.Header("Authorization", token))
 
 	if err != nil {
 		println("cannot connect to server", err.Error())
@@ -189,6 +189,7 @@ func (s *Signaler) Subscribe(destination string) (*stomp.Subscription, error) {
 		s.ConnectConn()
 		return nil, err
 	}
+	s.setSubscription(sub)
 	return sub, nil
 }
 
@@ -328,7 +329,7 @@ func (s *Signaler) pushSendMsg(destination string, msg interface{}) {
 }
 
 // pushMsg call handle msg callback (after receiving msg from STOMP server)
-func (s *Signaler) pushMsg(msg []interface{}) {
+func (s *Signaler) pushMsg(msg interface{}) {
 	if s.checkClose() && (s.getMsgchann() != nil) {
 		s.closeMsgChann()
 		return
@@ -366,7 +367,7 @@ func (s *Signaler) IsZeroOfUnderlyingType(x interface{}) bool {
 	return x == nil || reflect.DeepEqual(x, reflect.Zero(reflect.TypeOf(x)).Interface())
 }
 
-func (s *Signaler) handleMsg(msg []interface{}) {
+func (s *Signaler) handleMsg(msg interface{}) {
 	if handler := s.getProcessRecvData(); handler != nil {
 		handler(msg)
 	}
@@ -397,21 +398,13 @@ func (s *Signaler) handleRestart() {
 }
 
 // Recv to get result from STOMP server
-func (s *Signaler) Receive() ([]interface{}, error) {
-
-	var result []interface{}
+func (s *Signaler) Receive() (interface{}, error) {
+	var res interface{}
 
 	if sub := s.getSubscription(); sub != nil {
 		resp, err := sub.Read()
 
 		if err != nil {
-			//Send NACK to notify server
-			if conn := s.getConn(); conn != nil {
-				err = conn.Nack(resp)
-				if err != nil {
-					return nil, err
-				}
-			}
 			return nil, fmt.Errorf("recv err: %v", err)
 		}
 
@@ -419,20 +412,20 @@ func (s *Signaler) Receive() ([]interface{}, error) {
 			return nil, nil
 		}
 
-		err = json.Unmarshal(resp.Body, &result)
+		err = json.Unmarshal(resp.Body, &res)
 		if err != nil {
 			return nil, fmt.Errorf("Signaler recv err: %v", err)
 		}
-
+		//result = append(result, res)
 		// acknowledge the message
 		if conn := s.getConn(); conn != nil {
 			err = conn.Ack(resp)
 			if err != nil {
-				return result, err
+				return res, err
 			}
 		}
 	}
-	return result, nil
+	return res, nil
 }
 
 func (s *Signaler) reading() {
