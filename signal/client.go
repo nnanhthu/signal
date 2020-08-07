@@ -23,12 +23,6 @@ const (
 	pongWait = stomp.DefaultHeartBeatError // 60 * time.Second
 )
 
-// Obj to send from client
-type SendObj struct {
-	Destination string
-	Data        []byte
-}
-
 // Signaler to connect signal
 type Signaler struct {
 	url             string
@@ -139,7 +133,7 @@ func (s *Signaler) CloseConn() {
 	s.removeConn()
 }
 
-func (s *Signaler) ConnectConn() error {
+func (s *Signaler) ConnectConn(dest string) error {
 	url := s.getURL()
 	token := s.getToken()
 	// Can set readChannelCapacity, writeChannelCapacity through options when calling Dial
@@ -154,14 +148,18 @@ func (s *Signaler) ConnectConn() error {
 		return err
 	}
 	s.setConn(conn)
-	go s.reading()
+	// subscribe room channel to listen to response from STOMP server
+	if _, err := s.Subscribe(dest); err != nil {
+		return err
+	}
+	go s.reading(dest)
 	s.info(fmt.Sprintf("Connecting to %s", url))
 	return nil
 }
 
-func (s *Signaler) RestartConn() {
+func (s *Signaler) RestartConn(dest string) {
 	s.CloseConn()
-	if err := s.ConnectConn(); err != nil {
+	if err := s.ConnectConn(dest); err != nil {
 		s.pushError(err.Error())
 	}
 }
@@ -180,13 +178,13 @@ func (s *Signaler) removeSubscription() {
 }
 
 // Subscribe to a destination on STOMP Server
-func (s *Signaler) Subscribe(destination string) (*stomp.Subscription, error) {
-	sub, err := s.conn.Subscribe(destination, stomp.AckClientIndividual)
+func (s *Signaler) Subscribe(dest string) (*stomp.Subscription, error) {
+	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual)
 	if err != nil {
 		s.error(err.Error())
-		println("cannot subscribe to", destination, err.Error())
+		println("cannot subscribe to", dest, err.Error())
 		// Reconnect because at this time, server may be disconnect to client
-		s.ConnectConn()
+		s.ConnectConn(dest)
 		return nil, err
 	}
 	s.setSubscription(sub)
@@ -204,8 +202,8 @@ func (s *Signaler) Unsubscribe() {
 }
 
 // Check subscription and connection
-func (s *Signaler) handlePingHandler(destination string) error {
-	if err := s.sendPong(destination); err != nil {
+func (s *Signaler) handlePingHandler(dest string) error {
+	if err := s.sendPong(dest); err != nil {
 		s.pushError(err.Error())
 		return err
 	}
@@ -214,7 +212,7 @@ func (s *Signaler) handlePingHandler(destination string) error {
 
 // Note: destination to send pong must have no client subscribing
 // TODO: Find another way to send message to server without destination or way to check server connection without sending msg
-func (s *Signaler) sendPong(destination string) error {
+func (s *Signaler) sendPong(dest string) error {
 	// 1. Check subscription is active
 	if sub := s.getSubscription(); sub != nil {
 		if sub.Active() == false {
@@ -226,7 +224,7 @@ func (s *Signaler) sendPong(destination string) error {
 	// 2. Check connection with server (server is still alive)
 	// send to server with receipt
 	err := s.conn.Send(
-		destination,           // destination
+		dest,                  // destination
 		"text/plain",          // content-type
 		[]byte("Keep alive?"), // body
 		stomp.SendOpt.Receipt)
@@ -302,13 +300,13 @@ func (s *Signaler) pushError(err string) {
 
 // Proceed relating to message
 // Send msg to a destination (channel) on STOMP server
-func (s *Signaler) Send(destination string, contentType string, data []byte) error {
+func (s *Signaler) Send(dest string, contentType string, data []byte) error {
 	if conn := s.getConn(); conn != nil {
 		s.mutex.Lock()
 		defer s.mutex.Unlock()
-		if err := conn.Send(destination, contentType, data, stomp.SendOpt.Receipt); err != nil {
+		if err := conn.Send(dest, contentType, data, stomp.SendOpt.Receipt); err != nil {
 			//Reconnect because after server proceed failed, it'll disconnect to client
-			s.ConnectConn()
+			s.ConnectConn(dest)
 			return err
 		}
 		return nil
@@ -317,7 +315,7 @@ func (s *Signaler) Send(destination string, contentType string, data []byte) err
 }
 
 // Send message from client to channel node to prepare for sending to a destination on STOMP server
-func (s *Signaler) pushSendMsg(destination string, msg interface{}) {
+func (s *Signaler) pushSendMsg(msg interface{}) {
 	if s.checkClose() && (s.getSendMsgchann() != nil) {
 		s.closeSendMsgChann()
 		return
@@ -340,7 +338,7 @@ func (s *Signaler) pushMsg(msg interface{}) {
 	}
 }
 
-func (s *Signaler) handleSendMsg(destination string, data interface{}) {
+func (s *Signaler) handleSendMsg(dest string, data interface{}) {
 	defer handlepanic(data)
 	if data == nil {
 		s.info("Cannot send to signal. Input data is nil")
@@ -357,7 +355,7 @@ func (s *Signaler) handleSendMsg(destination string, data interface{}) {
 		s.pushError(err.Error())
 		return
 	}
-	if err := s.Send(destination, "text/plain", msg); err != nil {
+	if err := s.Send(dest, "text/plain", msg); err != nil {
 		s.pushError(err.Error())
 	}
 }
@@ -393,8 +391,8 @@ func (s *Signaler) pushCloseSignal() {
 	}
 }
 
-func (s *Signaler) handleRestart() {
-	s.RestartConn()
+func (s *Signaler) handleRestart(dest string) {
+	s.RestartConn(dest)
 }
 
 // Recv to get result from STOMP server
@@ -428,8 +426,8 @@ func (s *Signaler) Receive() (interface{}, error) {
 	return res, nil
 }
 
-func (s *Signaler) reading() {
-	defer s.RestartConn()
+func (s *Signaler) reading(dest string) {
+	defer s.RestartConn(dest)
 	for {
 		recv, err := s.Receive()
 		if err != nil {
@@ -445,23 +443,23 @@ func (s *Signaler) reading() {
 }
 
 // Listener to serve requests
-func (s *Signaler) serve() {
+func (s *Signaler) serve(dest string) {
 	for {
 		select {
 		case <-s.getClosechann():
 			s.close()
 			return
 		case <-s.getRestartChann():
-			s.handleRestart()
+			s.handleRestart(dest)
 		case err := <-s.getErrchann():
 			s.error(err)
 		case msg := <-s.getMsgchann():
 			s.handleMsg(msg)
 		case data := <-s.getSendMsgchann():
-			byteData, _ := json.Marshal(data)
-			obj := &SendObj{}
-			json.Unmarshal(byteData, &obj)
-			s.handleSendMsg(obj.Destination, obj.Data)
+			//byteData, _ := json.Marshal(data)
+			//obj := &SendObj{}
+			//json.Unmarshal(byteData, &obj)
+			s.handleSendMsg(dest, data)
 		}
 	}
 }
@@ -473,8 +471,8 @@ func (s *Signaler) close() {
 }
 
 // SendText to send data to wss
-func (s *Signaler) SendText(destination string, data interface{}) {
-	s.pushSendMsg(destination, data)
+func (s *Signaler) SendText(dest string, data interface{}) {
+	s.pushSendMsg(data)
 }
 
 // Close to running wss process
@@ -483,11 +481,12 @@ func (s *Signaler) Close() {
 }
 
 // Start to running wss process
-func (s *Signaler) Start() error {
-	if err := s.ConnectConn(); err != nil {
+func (s *Signaler) Start(dest string) error {
+	if err := s.ConnectConn(dest); err != nil {
 		return err
 	}
-	go s.serve()
-	s.info(fmt.Sprintf("Ready to use....!!!! \n"))
+
+	go s.serve(dest)
+	s.info(fmt.Sprintf("Ready to use room %s....!!!! \n", dest))
 	return nil
 }
