@@ -4,8 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/go-stomp/stomp"
+	"github.com/gorilla/websocket"
 	log "github.com/lamhai1401/gologs/logs"
+	"github.com/nnanhthu/go-stomp-update"
 	"reflect"
 	"sync"
 	"time"
@@ -41,8 +42,10 @@ type Signaler struct {
 
 // NewSignaler to create new signaler
 func NewSignaler(url string, processRecvData func(interface{}), token string) *Signaler {
+	//Create random url from root url
+	newUrl := createUrl(url)
 	signaler := &Signaler{
-		url:             url,
+		url:             newUrl,
 		token:           token,
 		processRecvData: processRecvData,
 		closeChann:      make(chan int),
@@ -137,9 +140,16 @@ func (s *Signaler) ConnectConn(dest string) error {
 	url := s.getURL()
 	token := s.getToken()
 	// Can set readChannelCapacity, writeChannelCapacity through options when calling Dial
-	conn, err := stomp.Dial("tcp", url,
-		stomp.ConnOpt.AcceptVersion(stomp.V10),
-		stomp.ConnOpt.AcceptVersion(stomp.V11),
+	// Create web socket connection first
+	netConn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	if err != nil {
+		println("cannot connect to server", err.Error())
+		return err
+	}
+	// Now create the stomp connection
+
+	stompConn, err := stomp.Connect(netConn,
+		stomp.ConnOpt.Host(url),
 		stomp.ConnOpt.AcceptVersion(stomp.V12),
 		stomp.ConnOpt.Header("Authorization", token))
 
@@ -147,7 +157,7 @@ func (s *Signaler) ConnectConn(dest string) error {
 		println("cannot connect to server", err.Error())
 		return err
 	}
-	s.setConn(conn)
+	s.setConn(stompConn)
 	// subscribe room channel to listen to response from STOMP server
 	if _, err := s.Subscribe(dest); err != nil {
 		return err
@@ -304,11 +314,13 @@ func (s *Signaler) Send(dest string, contentType string, data []byte) error {
 	if conn := s.getConn(); conn != nil {
 		s.mutex.Lock()
 		defer s.mutex.Unlock()
-		if err := conn.Send(dest, contentType, data, stomp.SendOpt.Receipt); err != nil {
+		//if err := conn.Send(dest, contentType, data, stomp.SendOpt.Receipt); err != nil {
+		if err := conn.Send(dest, contentType, data); err != nil {
 			//Reconnect because after server proceed failed, it'll disconnect to client
 			s.ConnectConn(dest)
 			return err
 		}
+		println("Sent: %v", data)
 		return nil
 	}
 	return fmt.Errorf("Current connection is nil")
@@ -355,7 +367,7 @@ func (s *Signaler) handleSendMsg(dest string, data interface{}) {
 		s.pushError(err.Error())
 		return
 	}
-	if err := s.Send(dest, "text/plain", msg); err != nil {
+	if err := s.Send(dest, "application/json", msg); err != nil {
 		s.pushError(err.Error())
 	}
 }
@@ -409,19 +421,21 @@ func (s *Signaler) Receive() (interface{}, error) {
 		if len(resp.Body) == 0 {
 			return nil, nil
 		}
-
+		actualText := string(resp.Body)
+		println("Receive message:", actualText)
 		err = json.Unmarshal(resp.Body, &res)
 		if err != nil {
 			return nil, fmt.Errorf("Signaler recv err: %v", err)
 		}
 		//result = append(result, res)
 		// acknowledge the message
-		if conn := s.getConn(); conn != nil {
-			err = conn.Ack(resp)
-			if err != nil {
-				return res, err
-			}
-		}
+		// TODO comment for test, uncomment after server finish
+		//if conn := s.getConn(); conn != nil {
+		//	err = conn.Ack(resp)
+		//	if err != nil {
+		//		return res, err
+		//	}
+		//}
 	}
 	return res, nil
 }
@@ -431,12 +445,14 @@ func (s *Signaler) reading(dest string) {
 	for {
 		recv, err := s.Receive()
 		if err != nil {
+			println(err)
 			s.error(fmt.Sprintf("reading error: %v. Could be was throw signal. Restarting conn", err))
 			return
 		}
 		if recv == nil {
 			continue
 		}
+		println("Received: %v", recv)
 		s.pushMsg(recv)
 		recv = nil
 	}
