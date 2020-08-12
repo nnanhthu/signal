@@ -552,18 +552,15 @@ func (s *Signaler) Close() {
 }
 
 // Start to running wss process
-func (s *Signaler) Start(publicChannel, privateChannel, dest string) error {
+func (s *Signaler) Start(publicChannel, privateChannel string) error {
 	if err := s.ConnectAndSubscribe(publicChannel, privateChannel); err != nil {
 		return err
 	}
 
-	//Server for message on 3 channels (send or receive)
+	//Server for message on 2 channels (send or receive)
 	go s.serve(publicChannel)
 	go s.serve(privateChannel)
-	//For send message only (to controller)
-	if len(dest) > 0 {
-		go s.serve(dest)
-	}
+
 	s.info(fmt.Sprintf("Ready to use room %s....!!!! \n", publicChannel))
 	return nil
 }
