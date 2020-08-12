@@ -582,7 +582,7 @@ func (s *Signaler) reading(dest string, isPublic bool) {
 		if recv == nil {
 			continue
 		}
-		//println("Received: %v", recv)
+		println("Received: %v", recv)
 		s.info(recv)
 		s.pushMsg(recv)
 		recv = nil

@@ -2,6 +2,7 @@ package signal
 
 import (
 	"fmt"
+	"github.com/nnanhthu/go-stomp-update"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -35,4 +36,16 @@ func paddedRandomInt(max int) string {
 
 func createUrl(url string) string {
 	return url + paddedRandomInt(999) + "/" + uniuri.New() + "/websocket"
+}
+
+func remove(items []stomp.Subscription, item stomp.Subscription) []stomp.Subscription {
+	newitems := []stomp.Subscription{}
+
+	for _, i := range items {
+		if i != item {
+			newitems = append(newitems, i)
+		}
+	}
+
+	return newitems
 }
