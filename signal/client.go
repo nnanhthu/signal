@@ -139,7 +139,35 @@ func (s *Signaler) CloseConn() {
 	s.removeConn()
 }
 
-func (s *Signaler) ConnectConn(dest string) error {
+//Connect to stomp
+//Subscribe 2 channels for message broadcast and private message
+//Listen to read data from 2 channels
+func (s *Signaler) ConnectAndSubscribe(publicChannel, privateChannel string) error {
+	//Connect to stomp server
+	if err := s.connect(); err != nil {
+		return err
+	}
+	// subscribe room channel to listen to response from STOMP server
+	if _, err := s.Subscribe(publicChannel); err != nil {
+		return err
+	}
+	if _, err := s.Subscribe(privateChannel); err != nil {
+		return err
+	}
+	go s.reading(publicChannel)
+	go s.reading(privateChannel)
+
+	return nil
+}
+
+func (s *Signaler) RestartConn() {
+	s.CloseConn()
+	if err := s.connect(); err != nil {
+		s.pushError(err.Error())
+	}
+}
+
+func (s *Signaler) connect() error {
 	url := s.getURL()
 	token := s.getToken()
 	// Can set readChannelCapacity, writeChannelCapacity through options when calling Dial
@@ -162,20 +190,8 @@ func (s *Signaler) ConnectConn(dest string) error {
 		return err
 	}
 	s.setConn(stompConn)
-	// subscribe room channel to listen to response from STOMP server
-	if _, err := s.Subscribe(dest); err != nil {
-		return err
-	}
-	go s.reading(dest)
 	s.info(fmt.Sprintf("Connecting to %s", url))
 	return nil
-}
-
-func (s *Signaler) RestartConn(dest string) {
-	s.CloseConn()
-	if err := s.ConnectConn(dest); err != nil {
-		s.pushError(err.Error())
-	}
 }
 
 // Relating to subscription
@@ -199,7 +215,7 @@ func (s *Signaler) Subscribe(dest string) (*stomp.Subscription, error) {
 		println("cannot subscribe to", dest, err.Error())
 		disConnectTimes += 1
 		// Reconnect because at this time, server may be disconnect to client
-		s.ConnectConn(dest)
+		s.RestartConn()
 		return nil, err
 	}
 	s.setSubscription(sub)
@@ -316,7 +332,7 @@ func (s *Signaler) pushError(err string) {
 
 // Proceed relating to message
 // Send msg to a destination (channel) on STOMP server
-func (s *Signaler) Send(dest string, contentType string, data []byte) error {
+func (s *Signaler) send(dest string, contentType string, data []byte) error {
 	if conn := s.getConn(); conn != nil {
 		s.mutex.Lock()
 		defer s.mutex.Unlock()
@@ -324,7 +340,7 @@ func (s *Signaler) Send(dest string, contentType string, data []byte) error {
 		if err := conn.Send(dest, contentType, data); err != nil {
 			disConnectTimes += 1
 			//Reconnect because after server proceed failed, it'll disconnect to client
-			s.ConnectConn(dest)
+			s.RestartConn()
 			return err
 		}
 		println("Sent: %v", data)
@@ -374,7 +390,7 @@ func (s *Signaler) handleSendMsg(dest string, data interface{}) {
 		s.pushError(err.Error())
 		return
 	}
-	if err := s.Send(dest, "application/json", msg); err != nil {
+	if err := s.send(dest, "application/json", msg); err != nil {
 		s.pushError(err.Error())
 	}
 }
@@ -449,7 +465,7 @@ func (s *Signaler) pushCloseSignal() {
 }
 
 func (s *Signaler) handleRestart(dest string) {
-	s.RestartConn(dest)
+	s.RestartConn()
 }
 
 // Recv to get result from STOMP server
@@ -479,7 +495,7 @@ func (s *Signaler) Receive() (*stomp.Message, error) {
 }
 
 func (s *Signaler) reading(dest string) {
-	defer s.RestartConn(dest)
+	defer s.RestartConn()
 	for {
 		println("Number of disconnect: %f", disConnectTimes)
 		recv, err := s.Receive()
@@ -525,8 +541,8 @@ func (s *Signaler) close() {
 	s.CloseConn()
 }
 
-// SendText to send data to wss
-func (s *Signaler) SendText(dest string, data interface{}) {
+// SendMsg to send data to wss
+func (s *Signaler) SendMsg(data interface{}) {
 	s.pushSendMsg(data)
 }
 
@@ -536,12 +552,16 @@ func (s *Signaler) Close() {
 }
 
 // Start to running wss process
-func (s *Signaler) Start(dest string) error {
-	if err := s.ConnectConn(dest); err != nil {
+func (s *Signaler) Start(publicChannel, privateChannel, dest string) error {
+	if err := s.ConnectAndSubscribe(publicChannel, privateChannel); err != nil {
 		return err
 	}
 
+	//Server for message on 3 channels (send or receive)
+	go s.serve(publicChannel)
+	go s.serve(publicChannel)
+	//For send message only
 	go s.serve(dest)
-	s.info(fmt.Sprintf("Ready to use room %s....!!!! \n", dest))
+	s.info(fmt.Sprintf("Ready to use room %s....!!!! \n", publicChannel))
 	return nil
 }
