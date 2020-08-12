@@ -2,7 +2,6 @@ package signal
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
 	log "github.com/lamhai1401/gologs/logs"
@@ -28,18 +27,19 @@ var disConnectTimes = 0
 
 // Signaler to connect signal
 type Signaler struct {
-	url             string
-	token           string                  // token to authenticate with STOMP server
-	conn            *stomp.Conn             // handle connection
-	subscription    *stomp.Subscription     // handle subscription
-	errChan         chan string             // err to reconnect
-	closeChann      chan int                // close all sk
-	restartChann    chan int                // to handler restart msg
-	msgChann        chan *stomp.Message     // msg chann
-	sendMsgChann    chan interface{}        // send msg
-	processRecvData func(interface{}) error // to handle process when mess is coming
-	isClosed        bool                    //
-	mutex           sync.Mutex              // handle concurrent
+	url                 string
+	token               string                  // token to authenticate with STOMP server
+	conn                *stomp.Conn             // handle connection
+	publicSubscription  *stomp.Subscription     // handle public subscription
+	privateSubscription *stomp.Subscription     // handle private subscription
+	errChan             chan string             // err to reconnect
+	closeChann          chan int                // close all sk
+	restartChann        chan int                // to handler restart msg
+	msgChann            chan *stomp.Message     // msg chann
+	sendMsgChann        chan interface{}        // send msg
+	processRecvData     func(interface{}) error // to handle process when mess is coming
+	isClosed            bool                    //
+	mutex               sync.Mutex              // handle concurrent
 }
 
 // NewSignaler to create new signaler
@@ -96,8 +96,12 @@ func (s *Signaler) getConn() *stomp.Conn {
 	return s.conn
 }
 
-func (s *Signaler) getSubscription() *stomp.Subscription {
-	return s.subscription
+func (s *Signaler) getPublicSubscription() *stomp.Subscription {
+	return s.publicSubscription
+}
+
+func (s *Signaler) getPrivateSubscription() *stomp.Subscription {
+	return s.privateSubscription
 }
 
 func (s *Signaler) checkClose() bool {
@@ -148,14 +152,14 @@ func (s *Signaler) ConnectAndSubscribe(publicChannel, privateChannel string) err
 		return err
 	}
 	// subscribe room channel to listen to response from STOMP server
-	if _, err := s.Subscribe(publicChannel); err != nil {
+	if _, err := s.SubscribePublic(publicChannel); err != nil {
 		return err
 	}
-	if _, err := s.Subscribe(privateChannel); err != nil {
+	if _, err := s.SubscribePrivate(privateChannel); err != nil {
 		return err
 	}
-	go s.reading(publicChannel)
-	go s.reading(privateChannel)
+	go s.reading(publicChannel, true)
+	go s.reading(privateChannel, false)
 
 	return nil
 }
@@ -195,20 +199,32 @@ func (s *Signaler) connect() error {
 }
 
 // Relating to subscription
-func (s *Signaler) setSubscription(sub *stomp.Subscription) {
+func (s *Signaler) setPublicSubscription(sub *stomp.Subscription) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	s.subscription = sub
+	s.publicSubscription = sub
 }
 
-func (s *Signaler) removeSubscription() {
+func (s *Signaler) removePublicSubscription() {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	s.subscription = nil
+	s.publicSubscription = nil
+}
+
+func (s *Signaler) setPrivateSubscription(sub *stomp.Subscription) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.privateSubscription = sub
+}
+
+func (s *Signaler) removePrivateSubscription() {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.privateSubscription = nil
 }
 
 // Subscribe to a destination on STOMP Server
-func (s *Signaler) Subscribe(dest string) (*stomp.Subscription, error) {
+func (s *Signaler) SubscribePublic(dest string) (*stomp.Subscription, error) {
 	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual)
 	if err != nil {
 		s.error(err.Error())
@@ -218,53 +234,81 @@ func (s *Signaler) Subscribe(dest string) (*stomp.Subscription, error) {
 		s.RestartConn()
 		return nil, err
 	}
-	s.setSubscription(sub)
+	s.setPublicSubscription(sub)
 	return sub, nil
 }
 
-// Unsubscribe from a destination on STOMP Server
+func (s *Signaler) SubscribePrivate(dest string) (*stomp.Subscription, error) {
+	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual)
+	if err != nil {
+		s.error(err.Error())
+		println("cannot subscribe to", dest, err.Error())
+		disConnectTimes += 1
+		// Reconnect because at this time, server may be disconnect to client
+		s.RestartConn()
+		return nil, err
+	}
+	s.setPrivateSubscription(sub)
+	return sub, nil
+}
 func (s *Signaler) Unsubscribe() {
-	if sub := s.getSubscription(); sub != nil {
+	s.unsubscribePublic()
+	s.unsubscribePrivate()
+}
+
+// Unsubscribe from a destination on STOMP Server
+func (s *Signaler) unsubscribePublic() {
+	if sub := s.getPublicSubscription(); sub != nil {
 		if err := sub.Unsubscribe(); err != nil {
 			disConnectTimes += 1
 			s.error(err.Error())
 		}
 	}
-	s.removeSubscription()
+	s.removePublicSubscription()
+}
+
+func (s *Signaler) unsubscribePrivate() {
+	if sub := s.getPrivateSubscription(); sub != nil {
+		if err := sub.Unsubscribe(); err != nil {
+			disConnectTimes += 1
+			s.error(err.Error())
+		}
+	}
+	s.removePrivateSubscription()
 }
 
 // Check subscription and connection
-func (s *Signaler) handlePingHandler(dest string) error {
-	if err := s.sendPong(dest); err != nil {
-		s.pushError(err.Error())
-		return err
-	}
-	return nil
-}
-
-// Note: destination to send pong must have no client subscribing
-// TODO: Find another way to send message to server without destination or way to check server connection without sending msg
-func (s *Signaler) sendPong(dest string) error {
-	// 1. Check subscription is active
-	if sub := s.getSubscription(); sub != nil {
-		if sub.Active() == false {
-			err := errors.New("Subscription was unsubscribed and channel was closed")
-			s.error(err)
-			return err
-		}
-	}
-	// 2. Check connection with server (server is still alive)
-	// send to server with receipt
-	err := s.conn.Send(
-		dest,                  // destination
-		"text/plain",          // content-type
-		[]byte("Keep alive?"), // body
-		stomp.SendOpt.Receipt)
-	if err != nil {
-		return err
-	}
-	return nil
-}
+//func (s *Signaler) handlePingHandler(dest string) error {
+//	if err := s.sendPong(dest); err != nil {
+//		s.pushError(err.Error())
+//		return err
+//	}
+//	return nil
+//}
+//
+//// Note: destination to send pong must have no client subscribing
+//// TODO: Find another way to send message to server without destination or way to check server connection without sending msg
+//func (s *Signaler) sendPong(dest string) error {
+//	// 1. Check subscription is active
+//	if sub := s.getSubscription(); sub != nil {
+//		if sub.Active() == false {
+//			err := errors.New("Subscription was unsubscribed and channel was closed")
+//			s.error(err)
+//			return err
+//		}
+//	}
+//	// 2. Check connection with server (server is still alive)
+//	// send to server with receipt
+//	err := s.conn.Send(
+//		dest,                  // destination
+//		"text/plain",          // content-type
+//		[]byte("Keep alive?"), // body
+//		stomp.SendOpt.Receipt)
+//	if err != nil {
+//		return err
+//	}
+//	return nil
+//}
 
 func (s *Signaler) handleCloseHandler(code int, text string) error {
 	s.info(fmt.Sprintf("Close connection code: %d, with text: %s. Try to reconnect", code, text))
@@ -469,10 +513,10 @@ func (s *Signaler) handleRestart() {
 }
 
 // Recv to get result from STOMP server
-func (s *Signaler) Receive() (*stomp.Message, error) {
+func (s *Signaler) ReceiveFromPublic() (*stomp.Message, error) {
 	var res *stomp.Message
 
-	if sub := s.getSubscription(); sub != nil {
+	if sub := s.getPublicSubscription(); sub != nil {
 		resp, err := sub.Read()
 
 		if err != nil {
@@ -494,11 +538,42 @@ func (s *Signaler) Receive() (*stomp.Message, error) {
 	return res, nil
 }
 
-func (s *Signaler) reading(dest string) {
+func (s *Signaler) ReceiveFromPrivate() (*stomp.Message, error) {
+	var res *stomp.Message
+
+	if sub := s.getPrivateSubscription(); sub != nil {
+		resp, err := sub.Read()
+
+		if err != nil {
+			disConnectTimes += 1
+			return nil, fmt.Errorf("recv err: %v", err)
+		}
+
+		if len(resp.Body) == 0 {
+			return nil, nil
+		}
+		res = resp
+
+		//err = json.Unmarshal(resp.Body, &res)
+		//if err != nil {
+		//	return nil, fmt.Errorf("Signaler recv err: %v", err)
+		//}
+
+	}
+	return res, nil
+}
+
+func (s *Signaler) reading(dest string, isPublic bool) {
 	defer s.RestartConn()
 	for {
 		println("Number of disconnect: %f", disConnectTimes)
-		recv, err := s.Receive()
+		var recv *stomp.Message
+		var err error
+		if isPublic {
+			recv, err = s.ReceiveFromPublic()
+		} else {
+			recv, err = s.ReceiveFromPrivate()
+		}
 		if err != nil {
 			println(err)
 			s.error(fmt.Sprintf("reading error: %v. Could be was throw signal. Restarting conn", err))
@@ -507,7 +582,8 @@ func (s *Signaler) reading(dest string) {
 		if recv == nil {
 			continue
 		}
-		println("Received: %v", recv)
+		//println("Received: %v", recv)
+		s.info(recv)
 		s.pushMsg(recv)
 		recv = nil
 	}
