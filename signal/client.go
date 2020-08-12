@@ -332,7 +332,7 @@ func (s *Signaler) pushError(err string) {
 
 // Proceed relating to message
 // Send msg to a destination (channel) on STOMP server
-func (s *Signaler) send(dest string, contentType string, data []byte) error {
+func (s *Signaler) Send(dest string, contentType string, data []byte) error {
 	if conn := s.getConn(); conn != nil {
 		s.mutex.Lock()
 		defer s.mutex.Unlock()
@@ -390,7 +390,7 @@ func (s *Signaler) handleSendMsg(dest string, data interface{}) {
 		s.pushError(err.Error())
 		return
 	}
-	if err := s.send(dest, "application/json", msg); err != nil {
+	if err := s.Send(dest, "application/json", msg); err != nil {
 		s.pushError(err.Error())
 	}
 }
@@ -464,7 +464,7 @@ func (s *Signaler) pushCloseSignal() {
 	}
 }
 
-func (s *Signaler) handleRestart(dest string) {
+func (s *Signaler) handleRestart() {
 	s.RestartConn()
 }
 
@@ -521,7 +521,7 @@ func (s *Signaler) serve(dest string) {
 			s.close()
 			return
 		case <-s.getRestartChann():
-			s.handleRestart(dest)
+			s.handleRestart()
 		case err := <-s.getErrchann():
 			s.error(err)
 		case msg := <-s.getMsgchann():
@@ -559,9 +559,11 @@ func (s *Signaler) Start(publicChannel, privateChannel, dest string) error {
 
 	//Server for message on 3 channels (send or receive)
 	go s.serve(publicChannel)
-	go s.serve(publicChannel)
-	//For send message only
-	go s.serve(dest)
+	go s.serve(privateChannel)
+	//For send message only (to controller)
+	if len(dest) > 0 {
+		go s.serve(dest)
+	}
 	s.info(fmt.Sprintf("Ready to use room %s....!!!! \n", publicChannel))
 	return nil
 }
