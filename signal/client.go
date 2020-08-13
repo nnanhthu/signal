@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/websocket"
 	log "github.com/lamhai1401/gologs/logs"
 	"github.com/nnanhthu/go-stomp-update"
+	"github.com/nnanhthu/go-stomp-update/frame"
 	"reflect"
 	"sync"
 	"time"
@@ -452,6 +453,10 @@ func (s *Signaler) handleMsg(msg *stomp.Message) {
 		//Get msg body to proceed
 		var res interface{}
 		err := json.Unmarshal(msg.Body, &res)
+		//Add message header before sending Ack
+
+		s.info(fmt.Sprintf("ADD ACK HEADER TO MESSAGE: %v.", err))
+		msg.Header.Add(frame.Ack, "messageId")
 		if err != nil {
 			println("Signaler recv err: %v", err)
 			//Send NACK
@@ -583,6 +588,7 @@ func (s *Signaler) reading(dest string, isPublic bool) {
 			continue
 		}
 		println("Received: %v", recv)
+
 		s.info(recv)
 		s.pushMsg(recv)
 		recv = nil
