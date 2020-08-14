@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/dchest/uniuri"
@@ -48,4 +49,10 @@ func remove(items []stomp.Subscription, item stomp.Subscription) []stomp.Subscri
 	}
 
 	return newitems
+}
+
+func formatSubscriptionId() string {
+	timestamp := time.Now().UnixNano() / int64(time.Millisecond)
+	random := rand.Intn(1000)
+	return "sub-" + strconv.FormatInt(timestamp, 10) + "-" + strconv.Itoa(random)
 }

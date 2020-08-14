@@ -2,6 +2,7 @@ package signal
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/gorilla/websocket"
 	log "github.com/lamhai1401/gologs/logs"
@@ -173,7 +174,7 @@ func (s *Signaler) CloseConn() {
 //Listen to read data from 2 channels
 func (s *Signaler) ConnectAndSubscribe() error {
 	//Connect to stomp server
-	if err := s.connect(); err != nil {
+	if err := s.connect(0); err != nil {
 		return err
 	}
 	println("Connect STOMP successfully")
@@ -204,15 +205,26 @@ func (s *Signaler) RestartConn() {
 	}
 }
 
-func (s *Signaler) connect() error {
+func (s *Signaler) connect(count int) error {
+	s.CloseConn()
+	fmt.Println("Connect times: %f", count)
+	if count > 0 {
+		time.Sleep(time.Duration(1 * time.Second))
+	}
+	if count >= 300 {
+		fmt.Println("Fail to connect. Close process")
+		err := errors.New("Fail to connect. Close process")
+		return err
+	}
 	url := s.getURL()
 	token := s.getToken()
 	// Can set readChannelCapacity, writeChannelCapacity through options when calling Dial
 	// Create web socket connection first
 	netConn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
-		println("cannot connect to server", err.Error())
-		return err
+		println("cannot connect to wss server", err.Error())
+		count++
+		return s.connect(count)
 	}
 	// Now create the stomp connection
 
@@ -222,9 +234,10 @@ func (s *Signaler) connect() error {
 		stomp.ConnOpt.Header("Authorization", token))
 
 	if err != nil {
-		println("cannot connect to server", err.Error())
+		println("cannot connect to stomp server", err.Error())
 		disConnectTimes += 1
-		return err
+		count++
+		return s.connect(count)
 	}
 	s.setConn(stompConn)
 	s.info(fmt.Sprintf("Connecting to %s", url))
@@ -258,7 +271,8 @@ func (s *Signaler) removePrivateSubscription() {
 
 // Subscribe to a destination on STOMP Server
 func (s *Signaler) SubscribePublic(dest string) (*stomp.Subscription, error) {
-	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual)
+	id := formatSubscriptionId()
+	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual, stomp.SubscribeOpt.Header(frame.Id, id))
 	if err != nil {
 		s.error(err.Error())
 		println("cannot subscribe to", dest, err.Error())
@@ -272,7 +286,8 @@ func (s *Signaler) SubscribePublic(dest string) (*stomp.Subscription, error) {
 }
 
 func (s *Signaler) SubscribePrivate(dest string) (*stomp.Subscription, error) {
-	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual)
+	id := formatSubscriptionId()
+	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual, stomp.SubscribeOpt.Header(frame.Id, id))
 	if err != nil {
 		s.error(err.Error())
 		println("cannot subscribe to", dest, err.Error())
