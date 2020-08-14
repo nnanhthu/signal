@@ -29,8 +29,10 @@ var disConnectTimes = 0
 // Signaler to connect signal
 type Signaler struct {
 	url                 string
-	token               string                  // token to authenticate with STOMP server
-	conn                *stomp.Conn             // handle connection
+	token               string      // token to authenticate with STOMP server
+	conn                *stomp.Conn // handle connection
+	publicChannel       string      // Keep info of channel to resubscribe
+	privateChannel      string
 	publicSubscription  *stomp.Subscription     // handle public subscription
 	privateSubscription *stomp.Subscription     // handle private subscription
 	errChan             chan string             // err to reconnect
@@ -44,12 +46,14 @@ type Signaler struct {
 }
 
 // NewSignaler to create new signaler
-func NewSignaler(url string, processRecvData func(interface{}) error, token string) *Signaler {
+func NewSignaler(url string, processRecvData func(interface{}) error, token, publicChannel, privateChannel string) *Signaler {
 	//Create random url from root url
 	newUrl := createUrl(url)
 	signaler := &Signaler{
 		url:             newUrl,
 		token:           token,
+		publicChannel:   publicChannel,
+		privateChannel:  privateChannel,
 		processRecvData: processRecvData,
 		closeChann:      make(chan int),
 		msgChann:        make(chan *stomp.Message, 1000),
@@ -63,6 +67,14 @@ func NewSignaler(url string, processRecvData func(interface{}) error, token stri
 // Getter, setter
 func (s *Signaler) getToken() string {
 	return s.token
+}
+
+func (s *Signaler) getPublicChannel() string {
+	return s.publicChannel
+}
+
+func (s *Signaler) getPrivateChannel() string {
+	return s.privateChannel
 }
 
 func (s *Signaler) getClosechann() chan int {
@@ -121,6 +133,18 @@ func (s *Signaler) setToken(token string) {
 	s.token = token
 }
 
+func (s *Signaler) setPublicChannel(publicChannel string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.publicChannel = publicChannel
+}
+
+func (s *Signaler) setPrivateChannel(privateChannel string) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.privateChannel = privateChannel
+}
+
 // Relating to connection
 func (s *Signaler) setConn(conn *stomp.Conn) {
 	s.mutex.Lock()
@@ -147,27 +171,35 @@ func (s *Signaler) CloseConn() {
 //Connect to stomp
 //Subscribe 2 channels for message broadcast and private message
 //Listen to read data from 2 channels
-func (s *Signaler) ConnectAndSubscribe(publicChannel, privateChannel string) error {
+func (s *Signaler) ConnectAndSubscribe() error {
 	//Connect to stomp server
 	if err := s.connect(); err != nil {
 		return err
 	}
+	println("Connect STOMP successfully")
 	// subscribe room channel to listen to response from STOMP server
-	if _, err := s.SubscribePublic(publicChannel); err != nil {
-		return err
+	if publicChannel := s.getPublicChannel(); len(publicChannel) > 0 {
+		if _, err := s.SubscribePublic(publicChannel); err != nil {
+			return err
+		}
+		println("Subscribe successfully, start reading: %s", publicChannel)
+		go s.reading(publicChannel, true)
 	}
-	if _, err := s.SubscribePrivate(privateChannel); err != nil {
-		return err
+	if privateChannel := s.getPrivateChannel(); len(privateChannel) > 0 {
+		if _, err := s.SubscribePrivate(privateChannel); err != nil {
+			return err
+		}
+		println("Subscribe successfully, start reading: %s", privateChannel)
+		go s.reading(privateChannel, false)
 	}
-	go s.reading(publicChannel, true)
-	go s.reading(privateChannel, false)
 
 	return nil
 }
 
 func (s *Signaler) RestartConn() {
 	s.CloseConn()
-	if err := s.connect(); err != nil {
+
+	if err := s.ConnectAndSubscribe(); err != nil {
 		s.pushError(err.Error())
 	}
 }
@@ -572,6 +604,7 @@ func (s *Signaler) reading(dest string, isPublic bool) {
 	defer s.RestartConn()
 	for {
 		println("Number of disconnect: %f", disConnectTimes)
+
 		var recv *stomp.Message
 		var err error
 		if isPublic {
@@ -634,15 +667,18 @@ func (s *Signaler) Close() {
 }
 
 // Start to running wss process
-func (s *Signaler) Start(publicChannel, privateChannel string) error {
-	if err := s.ConnectAndSubscribe(publicChannel, privateChannel); err != nil {
+func (s *Signaler) Start() error {
+	if err := s.ConnectAndSubscribe(); err != nil {
 		return err
 	}
 
-	//Server for message on 2 channels (send or receive)
-	go s.serve(publicChannel)
-	go s.serve(privateChannel)
+	if publicChannel := s.getPublicChannel(); len(publicChannel) > 0 {
+		go s.serve(publicChannel)
+	}
+	if privateChannel := s.getPrivateChannel(); len(privateChannel) > 0 {
+		go s.serve(privateChannel)
+	}
 
-	s.info(fmt.Sprintf("Ready to use room %s....!!!! \n", publicChannel))
+	s.info(fmt.Sprintf("Ready to use room ....!!!! \n"))
 	return nil
 }
