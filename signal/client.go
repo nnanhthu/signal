@@ -367,12 +367,12 @@ func (s *Signaler) handleCloseHandler(code int, text string) error {
 
 // info to export log info
 func (s *Signaler) info(v ...interface{}) {
-	log.Info(fmt.Sprintf("[%s] %v", s.getToken(), v))
+	log.Info(fmt.Sprintf("Signal log: [%v]", v))
 }
 
 // error to export error info
 func (s *Signaler) error(v ...interface{}) {
-	log.Error(fmt.Sprintf("[%s] %v", s.getToken(), v))
+	log.Error(fmt.Sprintf("Signal log: [%v]", v))
 }
 
 // close chans
