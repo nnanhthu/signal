@@ -177,20 +177,20 @@ func (s *Signaler) ConnectAndSubscribe() error {
 	if err := s.connect(0); err != nil {
 		return err
 	}
-	println("Connect STOMP successfully")
+	log.Stack("Connect STOMP successfully")
 	// subscribe room channel to listen to response from STOMP server
 	if publicChannel := s.getPublicChannel(); len(publicChannel) > 0 {
 		if _, err := s.SubscribePublic(publicChannel); err != nil {
 			return err
 		}
-		println("Subscribe successfully, start reading: %s", publicChannel)
+		log.Stack("Subscribe successfully, start reading: %s", publicChannel)
 		go s.reading(publicChannel, true)
 	}
 	if privateChannel := s.getPrivateChannel(); len(privateChannel) > 0 {
 		if _, err := s.SubscribePrivate(privateChannel); err != nil {
 			return err
 		}
-		println("Subscribe successfully, start reading: %s", privateChannel)
+		log.Stack("Subscribe successfully, start reading: %s", privateChannel)
 		go s.reading(privateChannel, false)
 	}
 
@@ -207,12 +207,12 @@ func (s *Signaler) RestartConn() {
 
 func (s *Signaler) connect(count int) error {
 	s.CloseConn()
-	fmt.Println("Connect times: %f", count)
+	log.Stack(fmt.Sprintf("Connect times: %f", count))
 	if count > 0 {
 		time.Sleep(time.Duration(1 * time.Second))
 	}
 	if count >= 300 {
-		fmt.Println("Fail to connect. Close process")
+		log.Stack("Fail to connect. Close process")
 		err := errors.New("Fail to connect. Close process")
 		return err
 	}
@@ -222,7 +222,7 @@ func (s *Signaler) connect(count int) error {
 	// Create web socket connection first
 	netConn, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
-		println("cannot connect to wss server", err.Error())
+		log.Stack("cannot connect to wss server", err.Error())
 		count++
 		return s.connect(count)
 	}
@@ -234,7 +234,7 @@ func (s *Signaler) connect(count int) error {
 		stomp.ConnOpt.Header("Authorization", token))
 
 	if err != nil {
-		println("cannot connect to stomp server", err.Error())
+		log.Stack("cannot connect to stomp server", err.Error())
 		disConnectTimes += 1
 		count++
 		return s.connect(count)
@@ -275,7 +275,7 @@ func (s *Signaler) SubscribePublic(dest string) (*stomp.Subscription, error) {
 	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual, stomp.SubscribeOpt.Header(frame.Id, id))
 	if err != nil {
 		s.error(err.Error())
-		println("cannot subscribe to", dest, err.Error())
+		log.Stack(fmt.Sprintf("cannot subscribe to %s with error %s", dest, err.Error()))
 		disConnectTimes += 1
 		// Reconnect because at this time, server may be disconnect to client
 		s.RestartConn()
@@ -290,7 +290,7 @@ func (s *Signaler) SubscribePrivate(dest string) (*stomp.Subscription, error) {
 	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual, stomp.SubscribeOpt.Header(frame.Id, id))
 	if err != nil {
 		s.error(err.Error())
-		println("cannot subscribe to", dest, err.Error())
+		log.Stack(fmt.Sprintf("cannot subscribe to %s with error %s", dest, err.Error()))
 		disConnectTimes += 1
 		// Reconnect because at this time, server may be disconnect to client
 		s.RestartConn()
@@ -367,7 +367,7 @@ func (s *Signaler) handleCloseHandler(code int, text string) error {
 
 // info to export log info
 func (s *Signaler) info(v ...interface{}) {
-	log.Info(fmt.Sprintf("Signal log: [%v]", v))
+	log.Stack(fmt.Sprintf("Signal log: [%v]", v))
 }
 
 // error to export error info
@@ -435,7 +435,7 @@ func (s *Signaler) Send(dest string, contentType string, data []byte) error {
 			s.RestartConn()
 			return err
 		}
-		println("Sent: %v", data)
+		log.Stack(fmt.Sprintf("Sent successfully"))
 		return nil
 	}
 	return fmt.Errorf("Current connection is nil")
@@ -448,7 +448,7 @@ func (s *Signaler) pushSendMsg(msg interface{}) {
 		return
 	}
 	if chann := s.getSendMsgchann(); chann != nil {
-		println("Number of sent msg in chan: %f", len(chann))
+		log.Stack(fmt.Sprintf("Number of sent msg in chan: %f", len(chann)))
 		chann <- msg
 	}
 }
@@ -460,7 +460,7 @@ func (s *Signaler) pushMsg(msg *stomp.Message) {
 		return
 	}
 	if chann := s.getMsgchann(); chann != nil {
-		println("Number of received msg in chan: %f", len(chann))
+		log.Stack(fmt.Sprintf("Number of received msg in chan: %f", len(chann)))
 		chann <- msg
 	}
 }
@@ -505,12 +505,11 @@ func (s *Signaler) handleMsg(msg *stomp.Message) {
 		s.info(fmt.Sprintf("ADD ACK HEADER TO MESSAGE: %v.", err))
 		msg.Header.Add(frame.Ack, "messageId")
 		if err != nil {
-			println("Signaler recv err: %v", err)
+			log.Stack(fmt.Sprintf("Signaler recv err: %v", err))
 			//Send NACK
 			if conn := s.getConn(); conn != nil {
 				err = conn.Nack(msg)
 				if err != nil {
-					println(err)
 					s.error(fmt.Sprintf("NAck msg error: %v.", err))
 				}
 			}
@@ -522,7 +521,6 @@ func (s *Signaler) handleMsg(msg *stomp.Message) {
 			if conn := s.getConn(); conn != nil {
 				err = conn.Nack(msg)
 				if err != nil {
-					println(err)
 					s.error(fmt.Sprintf("NAck msg error: %v.", err))
 				}
 			}
@@ -532,7 +530,6 @@ func (s *Signaler) handleMsg(msg *stomp.Message) {
 			if conn := s.getConn(); conn != nil {
 				err = conn.Ack(msg)
 				if err != nil {
-					println(err)
 					s.error(fmt.Sprintf("Ack msg error: %v.", err))
 				}
 			}
@@ -618,7 +615,7 @@ func (s *Signaler) ReceiveFromPrivate() (*stomp.Message, error) {
 func (s *Signaler) reading(dest string, isPublic bool) {
 	defer s.RestartConn()
 	for {
-		println("Number of disconnect: %f", disConnectTimes)
+		log.Stack(fmt.Sprintf("Number of disconnect: %f", disConnectTimes))
 
 		var recv *stomp.Message
 		var err error
@@ -628,14 +625,13 @@ func (s *Signaler) reading(dest string, isPublic bool) {
 			recv, err = s.ReceiveFromPrivate()
 		}
 		if err != nil {
-			println(err)
 			s.error(fmt.Sprintf("reading error: %v. Could be was throw signal. Restarting conn", err))
 			return
 		}
 		if recv == nil {
 			continue
 		}
-		println("Received: %v", recv)
+		log.Stack(fmt.Sprintf("Received new item"))
 
 		s.info(recv)
 		s.pushMsg(recv)
