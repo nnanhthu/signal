@@ -636,23 +636,39 @@ func (s *Signaler) reading() {
 	for {
 		log.Stack(fmt.Sprintf("Number of disconnect: %f", disConnectTimes))
 
-		var recv []*stomp.Message
+		//var recv []*stomp.Message
+		var recv *stomp.Message
 		var err error
-		recv, err = s.Receive()
+		recv, err = s.receiveFromPublic() //.Receive()
 		if err != nil {
-			s.error(fmt.Sprintf("reading error: %v. Could be was throw signal. Restarting conn", err))
+			s.error(fmt.Sprintf("reading error from public channel: %v. Could be was throw signal. Restarting conn", err))
 			return
 		}
-		if recv == nil {
-			continue
-		}
-		log.Stack(fmt.Sprintf("Received new item"))
+		if recv != nil {
+			log.Stack(fmt.Sprintf("Received new public item"))
 
-		s.info(recv)
-		for _, msg := range recv {
-			s.pushMsg(msg)
+			s.info(recv)
+			//for _, msg := range recv {
+			s.pushMsg(recv)
+			//}
+			recv = nil
 		}
-		recv = nil
+
+		var privateRecv *stomp.Message
+		privateRecv, err = s.receiveFromPrivate() //.Receive()
+		if err != nil {
+			s.error(fmt.Sprintf("reading error from private channel: %v. Could be was throw signal. Restarting conn", err))
+			return
+		}
+		if privateRecv != nil {
+			log.Stack(fmt.Sprintf("Received new private item"))
+
+			s.info(privateRecv)
+			//for _, msg := range recv {
+			s.pushMsg(privateRecv)
+			//}
+			privateRecv = nil
+		}
 	}
 }
 
