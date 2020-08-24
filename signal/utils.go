@@ -56,3 +56,28 @@ func formatSubscriptionId() string {
 	random := rand.Intn(1000)
 	return "sub-" + strconv.FormatInt(timestamp, 10) + "-" + strconv.Itoa(random)
 }
+
+// -- Helper funcs --------------------------------------------------------------------------------
+
+func syncRead(chs ...chan *stomp.Message) chan []*stomp.Message {
+	outChan := make(chan []*stomp.Message, 1000)
+	go func() {
+		defer close(outChan)
+		for rs, ok := recvOneEach(chs...); ok; rs, ok = recvOneEach(chs...) {
+			outChan <- rs
+		}
+	}()
+	return outChan
+}
+
+func recvOneEach(chs ...chan *stomp.Message) (rs []*stomp.Message, ok bool) {
+	ok = true
+	for _, ch := range chs {
+		if ch == nil {
+			continue
+		}
+		r, ok2 := <-ch
+		rs, ok = append(rs, r), ok && ok2
+	}
+	return rs, ok
+}
