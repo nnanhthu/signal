@@ -184,16 +184,16 @@ func (s *Signaler) ConnectAndSubscribe() error {
 			return err
 		}
 		log.Stack("Subscribe successfully, start reading: %s", publicChannel)
-		//go s.reading(true)
+		go s.reading(true)
 	}
 	if privateChannel := s.getPrivateChannel(); len(privateChannel) > 0 {
 		if _, err := s.SubscribePrivate(privateChannel); err != nil {
 			return err
 		}
 		log.Stack("Subscribe successfully, start reading: %s", privateChannel)
-		//go s.reading(false)
+		go s.reading(false)
 	}
-	go s.reading()
+	//go s.reading()
 
 	return nil
 }
@@ -562,44 +562,44 @@ func (s *Signaler) handleRestart() {
 	s.RestartConn()
 }
 
-func (s *Signaler) Receive() (*stomp.Message, error) {
-	//var res *stomp.Message
-	publicSub := s.getPublicSubscription()
-	privateSub := s.getPrivateSubscription()
-	if publicSub == nil || privateSub == nil {
-		return nil, stomp.ErrCompletedSubscription
-	}
-	if !publicSub.Active() || !privateSub.Active() {
-		return nil, stomp.ErrCompletedSubscription
-	}
-	//for rs := range syncRead(publicChan, privateChan) {
-	//	res = append(res, rs...)
-	//}
-	//return res, nil
-
-	select {
-	case msg1, ok := <-publicSub.C:
-		if !ok {
-			return nil, stomp.ErrCompletedSubscription
-		}
-		if msg1.Err != nil {
-			return nil, msg1.Err
-		}
-		fmt.Println("received from pubChan ", msg1.Destination)
-		return msg1, nil
-	case msg2, ok := <-privateSub.C:
-		if !ok {
-			return nil, stomp.ErrCompletedSubscription
-		}
-		if msg2.Err != nil {
-			return nil, msg2.Err
-		}
-		fmt.Println("received from privChan ", msg2.Destination)
-		return msg2, nil
-	default:
-		return nil, nil
-	}
-}
+//func (s *Signaler) Receive() (*stomp.Message, error) {
+//	//var res *stomp.Message
+//	publicSub := s.getPublicSubscription()
+//	privateSub := s.getPrivateSubscription()
+//	if publicSub == nil || privateSub == nil {
+//		return nil, stomp.ErrCompletedSubscription
+//	}
+//	if !publicSub.Active() || !privateSub.Active() {
+//		return nil, stomp.ErrCompletedSubscription
+//	}
+//	//for rs := range syncRead(publicChan, privateChan) {
+//	//	res = append(res, rs...)
+//	//}
+//	//return res, nil
+//
+//	select {
+//	case msg1, ok := <-publicSub.C:
+//		if !ok {
+//			return nil, stomp.ErrCompletedSubscription
+//		}
+//		if msg1.Err != nil {
+//			return nil, msg1.Err
+//		}
+//		fmt.Println("received from pubChan ", msg1.Destination)
+//		return msg1, nil
+//	case msg2, ok := <-privateSub.C:
+//		if !ok {
+//			return nil, stomp.ErrCompletedSubscription
+//		}
+//		if msg2.Err != nil {
+//			return nil, msg2.Err
+//		}
+//		fmt.Println("received from privChan ", msg2.Destination)
+//		return msg2, nil
+//	default:
+//		return nil, nil
+//	}
+//}
 
 // Recv to get result from STOMP server
 func (s *Signaler) receiveFromPublic() (*stomp.Message, error) {
@@ -652,7 +652,7 @@ func (s *Signaler) receiveFromPrivate() (*stomp.Message, error) {
 	return res, nil
 }
 
-func (s *Signaler) reading() {
+func (s *Signaler) reading(isPublic bool) {
 	defer s.RestartConn()
 	for {
 		log.Stack(fmt.Sprintf("Number of disconnect: %f", disConnectTimes))
@@ -660,14 +660,14 @@ func (s *Signaler) reading() {
 		//var recv []*stomp.Message
 		var recv *stomp.Message
 		var err error
-		recv, err = s.Receive()
-		//if isPublic {
-		//	recv, err = s.receiveFromPublic()
-		//} else {
-		//	recv, err = s.receiveFromPrivate()
-		//}
+		//recv, err = s.Receive()
+		if isPublic {
+			recv, err = s.receiveFromPublic()
+		} else {
+			recv, err = s.receiveFromPrivate()
+		}
 		if err != nil {
-			s.error(fmt.Sprintf("reading error from public channel: %v. Could be was throw signal. Restarting conn", err))
+			s.error(fmt.Sprintf("reading error: %v. Could be was throw signal. Restarting conn", err))
 			return
 		}
 		if recv != nil && len(recv.Body) > 0 {
