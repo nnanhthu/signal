@@ -184,16 +184,16 @@ func (s *Signaler) ConnectAndSubscribe() error {
 			return err
 		}
 		log.Stack("Subscribe successfully, start reading: %s", publicChannel)
-		//go s.reading(publicChannel, true)
+		go s.reading(publicChannel, true)
 	}
 	if privateChannel := s.getPrivateChannel(); len(privateChannel) > 0 {
 		if _, err := s.SubscribePrivate(privateChannel); err != nil {
 			return err
 		}
 		log.Stack("Subscribe successfully, start reading: %s", privateChannel)
-		//go s.reading(privateChannel, false)
+		go s.reading(privateChannel, false)
 	}
-	go s.reading()
+	//go s.reading()
 
 	return nil
 }
@@ -631,7 +631,7 @@ func (s *Signaler) receiveFromPrivate() (*stomp.Message, error) {
 	return res, nil
 }
 
-func (s *Signaler) reading() {
+func (s *Signaler) reading(channel string, isPublic bool) {
 	defer s.RestartConn()
 	for {
 		log.Stack(fmt.Sprintf("Number of disconnect: %f", disConnectTimes))
@@ -639,7 +639,11 @@ func (s *Signaler) reading() {
 		//var recv []*stomp.Message
 		var recv *stomp.Message
 		var err error
-		recv, err = s.receiveFromPublic() //.Receive()
+		if isPublic {
+			recv, err = s.receiveFromPublic() //.Receive()
+		} else {
+			recv, err = s.receiveFromPrivate()
+		}
 		if err != nil {
 			s.error(fmt.Sprintf("reading error from public channel: %v. Could be was throw signal. Restarting conn", err))
 			return
@@ -654,21 +658,21 @@ func (s *Signaler) reading() {
 			recv = nil
 		}
 
-		var privateRecv *stomp.Message
-		privateRecv, err = s.receiveFromPrivate() //.Receive()
-		if err != nil {
-			s.error(fmt.Sprintf("reading error from private channel: %v. Could be was throw signal. Restarting conn", err))
-			return
-		}
-		if privateRecv != nil {
-			log.Stack(fmt.Sprintf("Received new private item"))
-
-			s.info(privateRecv)
-			//for _, msg := range recv {
-			s.pushMsg(privateRecv)
-			//}
-			privateRecv = nil
-		}
+		//var privateRecv *stomp.Message
+		//privateRecv, err = s.receiveFromPrivate() //.Receive()
+		//if err != nil {
+		//	s.error(fmt.Sprintf("reading error from private channel: %v. Could be was throw signal. Restarting conn", err))
+		//	return
+		//}
+		//if privateRecv != nil {
+		//	log.Stack(fmt.Sprintf("Received new private item"))
+		//
+		//	s.info(privateRecv)
+		//	//for _, msg := range recv {
+		//	s.pushMsg(privateRecv)
+		//	//}
+		//	privateRecv = nil
+		//}
 	}
 }
 
