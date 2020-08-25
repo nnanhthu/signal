@@ -640,7 +640,7 @@ func (s *Signaler) reading(dest string, isPublic bool) {
 }
 
 // Listener to serve requests
-func (s *Signaler) serve() {
+func (s *Signaler) serve(dest string) {
 	for {
 		select {
 		case <-s.getClosechann():
@@ -652,13 +652,11 @@ func (s *Signaler) serve() {
 			s.error(err)
 		case msg := <-s.getMsgchann():
 			s.handleMsg(msg)
-		//case data := <-s.getSendMsgchann():
-		//	//byteData, _ := json.Marshal(data)
-		//	//obj := &SendObj{}
-		//	//json.Unmarshal(byteData, &obj)
-		//	s.handleSendMsg(dest, data)
-		default:
-			continue
+		case data := <-s.getSendMsgchann():
+			//byteData, _ := json.Marshal(data)
+			//obj := &SendObj{}
+			//json.Unmarshal(byteData, &obj)
+			s.handleSendMsg(dest, data)
 		}
 	}
 }
@@ -685,14 +683,12 @@ func (s *Signaler) Start() error {
 		return err
 	}
 
-	go s.serve()
-
-	//if publicChannel := s.getPublicChannel(); len(publicChannel) > 0 {
-	//	go s.serve(publicChannel)
-	//}
-	//if privateChannel := s.getPrivateChannel(); len(privateChannel) > 0 {
-	//	go s.serve(privateChannel)
-	//}
+	if publicChannel := s.getPublicChannel(); len(publicChannel) > 0 {
+		go s.serve(publicChannel)
+	}
+	if privateChannel := s.getPrivateChannel(); len(privateChannel) > 0 {
+		go s.serve(privateChannel)
+	}
 
 	s.info(fmt.Sprintf("Ready to use room ....!!!! \n"))
 	return nil
