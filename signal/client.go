@@ -426,8 +426,14 @@ func (s *Signaler) pushError(err string) {
 
 // Send message to server through restful API
 func (s *Signaler) SendAPI(dest string, data interface{}) error {
-	jsonValue, _ := json.Marshal(data)
-	request, _ := http.NewRequest("POST", dest, bytes.NewBuffer(jsonValue))
+	jsonValue, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	request, err := http.NewRequest("POST", dest, bytes.NewBuffer(jsonValue))
+	if err != nil {
+		return err
+	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", s.getToken())
 	client := &http.Client{}
