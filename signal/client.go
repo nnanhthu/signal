@@ -1,6 +1,7 @@
 package signal
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	log "github.com/lamhai1401/gologs/logs"
 	"github.com/nnanhthu/go-stomp-update"
 	"github.com/nnanhthu/go-stomp-update/frame"
+	"net/http"
 	"reflect"
 	"sync"
 	"time"
@@ -420,6 +422,24 @@ func (s *Signaler) pushError(err string) {
 	if chann := s.getErrchann(); chann != nil {
 		chann <- err
 	}
+}
+
+// Send message to server through restful API
+func (s *Signaler) SendAPI(dest string, data interface{}) error {
+	jsonValue, _ := json.Marshal(data)
+	request, _ := http.NewRequest("POST", dest, bytes.NewBuffer(jsonValue))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", s.getToken())
+	client := &http.Client{}
+	response, err := client.Do(request)
+	if err != nil {
+		log.Stack(fmt.Sprintf("The HTTP request failed with error %s\n", err))
+		return err
+	} else if response.StatusCode != 200 {
+		log.Stack(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+		return errors.New(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+	}
+	return nil
 }
 
 // Proceed relating to message
