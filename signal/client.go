@@ -9,6 +9,7 @@ import (
 	log "github.com/lamhai1401/gologs/logs"
 	"github.com/nnanhthu/go-stomp-update"
 	"github.com/nnanhthu/go-stomp-update/frame"
+	"io/ioutil"
 	"net/http"
 	"reflect"
 	"sync"
@@ -44,12 +45,13 @@ type Signaler struct {
 	msgChann            chan *stomp.Message     // msg chann
 	sendMsgChann        chan interface{}        // send msg
 	processRecvData     func(interface{}) error // to handle process when mess is coming
+	timeout             time.Duration           // timeout to call API, in seconds
 	isClosed            bool                    //
 	mutex               sync.Mutex              // handle concurrent
 }
 
 // NewSignaler to create new signaler
-func NewSignaler(url string, processRecvData func(interface{}) error, token, publicChannel, privateChannel string) *Signaler {
+func NewSignaler(url string, processRecvData func(interface{}) error, token, publicChannel, privateChannel string, timeout int) *Signaler {
 	//Create random url from root url
 	newUrl := createUrl(url)
 	signaler := &Signaler{
@@ -63,6 +65,7 @@ func NewSignaler(url string, processRecvData func(interface{}) error, token, pub
 		errChan:         make(chan string, 10),
 		restartChann:    make(chan int, 10),
 		sendMsgChann:    make(chan interface{}, 1000),
+		timeout:         time.Duration(timeout) * time.Second,
 	}
 	return signaler
 }
@@ -118,6 +121,10 @@ func (s *Signaler) getPublicSubscription() *stomp.Subscription {
 
 func (s *Signaler) getPrivateSubscription() *stomp.Subscription {
 	return s.privateSubscription
+}
+
+func (s *Signaler) getTimeout() time.Duration {
+	return s.timeout
 }
 
 func (s *Signaler) checkClose() bool {
@@ -425,27 +432,77 @@ func (s *Signaler) pushError(err string) {
 }
 
 // Send message to server through restful API
-func (s *Signaler) SendAPI(dest string, data interface{}) error {
+func (s *Signaler) SendPostAPI(dest string, data interface{}) (int, error) {
+	timeout := s.getTimeout()
 	jsonValue, err := json.Marshal(data)
 	if err != nil {
-		return err
+		return http.StatusServiceUnavailable, err
+	}
+	var netTransport = &http.Transport{
+		//Dial: (&net.Dialer{
+		//	Timeout: 5 * time.Second,
+		//}).Dial,
+		TLSHandshakeTimeout: timeout,
+	}
+	var netClient = &http.Client{
+		Timeout:   timeout,
+		Transport: netTransport,
 	}
 	request, err := http.NewRequest("POST", dest, bytes.NewBuffer(jsonValue))
+	//request, err := netClient.Post(dest, "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
-		return err
+		return http.StatusServiceUnavailable, err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", s.getToken())
-	client := &http.Client{}
-	response, err := client.Do(request)
+	//client := &http.Client{}
+	response, err := netClient.Do(request)
 	if err != nil {
 		log.Stack(fmt.Sprintf("The HTTP request failed with error %s\n", err))
-		return err
-	} else if response.StatusCode != 200 {
-		log.Stack(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
-		return errors.New(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+		return http.StatusServiceUnavailable, err
 	}
-	return nil
+	if response.StatusCode != http.StatusOK {
+		log.Stack(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+		return response.StatusCode, errors.New(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+	}
+
+	defer response.Body.Close()
+	return response.StatusCode, nil
+}
+
+func (s *Signaler) SendGetAPI(dest string) (interface{}, int, error) {
+	timeout := s.getTimeout()
+	var netTransport = &http.Transport{
+		TLSHandshakeTimeout: timeout,
+	}
+	var netClient = &http.Client{
+		Timeout:   timeout,
+		Transport: netTransport,
+	}
+	request, err := http.NewRequest("GET", dest, nil)
+	if err != nil {
+		return nil, http.StatusServiceUnavailable, err
+	}
+	//request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", s.getToken())
+	response, err := netClient.Do(request)
+	if err != nil {
+		log.Stack(fmt.Sprintf("The HTTP request failed with error %s\n", err))
+		return nil, http.StatusServiceUnavailable, err
+	}
+	if response.StatusCode != http.StatusOK {
+		log.Stack(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+		return nil, response.StatusCode, errors.New(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+	}
+
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	var res interface{}
+	err = json.Unmarshal(body, &res)
+	if err != nil {
+		return nil, http.StatusServiceUnavailable, err
+	}
+	return res, response.StatusCode, nil
 }
 
 // Proceed relating to message
