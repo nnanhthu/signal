@@ -25,20 +25,20 @@ const (
 // Signaler to connect signal
 type WssSignaler struct {
 	url             string
-	Name            string              // signal name father or master or child
-	conn            *websocket.Conn     // handle connection
-	errChan         chan string         // err to reconnect
-	closeChann      chan int            // close all sk
-	restartChann    chan int            // to handler restart msg
-	msgChann        chan []interface{}  // msg chann
-	sendMsgChann    chan interface{}    // send msg
-	processRecvData func([]interface{}) // to handle process when mess is coming
-	isClosed        bool                //
-	mutex           sync.Mutex          // handle concurrent
+	Name            string                  // signal name father or master or child
+	conn            *websocket.Conn         // handle connection
+	errChan         chan string             // err to reconnect
+	closeChann      chan int                // close all sk
+	restartChann    chan int                // to handler restart msg
+	msgChann        chan []interface{}      // msg chann
+	sendMsgChann    chan interface{}        // send msg
+	processRecvData func(interface{}) error // to handle process when mess is coming
+	isClosed        bool                    //
+	mutex           sync.Mutex              // handle concurrent
 }
 
 // NewSignaler to create new signaler
-func NewWssSignaler(url string, processRecvData func([]interface{}), name string) *WssSignaler {
+func NewWssSignaler(url string, processRecvData func(interface{}) error, name string) *WssSignaler {
 	signaler := &WssSignaler{
 		url:             url,
 		Name:            name,
@@ -86,7 +86,7 @@ func (s *WssSignaler) setClose(state bool) {
 	s.isClosed = state
 }
 
-func (s *WssSignaler) getProcessRecvData() func([]interface{}) {
+func (s *WssSignaler) getProcessRecvData() func(interface{}) error {
 	return s.processRecvData
 }
 
@@ -329,7 +329,7 @@ func (s *WssSignaler) IsZeroOfUnderlyingType(x interface{}) bool {
 	return x == nil || reflect.DeepEqual(x, reflect.Zero(reflect.TypeOf(x)).Interface())
 }
 
-func (s *WssSignaler) handleMsg(msg []interface{}) {
+func (s *WssSignaler) handleMsg(msg interface{}) {
 	if handler := s.getProcessRecvData(); handler != nil {
 		handler(msg)
 	}

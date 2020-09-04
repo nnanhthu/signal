@@ -2,11 +2,9 @@ package signal
 
 import (
 	"fmt"
-	"os"
 	"sync"
 
 	log "github.com/lamhai1401/gologs/logs"
-	"github.com/pion/webrtc/v2"
 	"github.com/segmentio/ksuid"
 )
 
@@ -16,31 +14,42 @@ func generateID() string {
 	return id
 }
 
-// GetNotifyURL to get notify signal
-func GetNotifyURL(id string) string {
-	if url := os.Getenv("MULTIPLE_URLL"); url != "" {
-		return fmt.Sprintf("%s/?id=%s", url, id)
-	}
-	return fmt.Sprintf("wss://signal-test.dechen.app/?id=%s", id)
-}
+// GetNotifyURL to get msg signal
+//func GetNotifyURL(id string) string {
+//	if url := os.Getenv("MULTIPLE_URLL"); url != "" {
+//		return fmt.Sprintf("%s/?id=%s", url, id)
+//	}
+//	return fmt.Sprintf("wss://signal-test.dechen.app/?id=%s", id)
+//}
 
 // NotifySignal handle signal of wertc (candidate, sdp)
 type MsgSignal struct {
 	id              string
-	url             string
-	conn            *WssSignaler
-	closeWssChannel chan int            // handle close
-	sendMsgChannel  chan interface{}    // to save message
-	processRecvData func([]interface{}) // handle incoming msg
-	isClosed        bool                // handle close signal
+	stompUrl        string
+	wssUrl          string
+	stompConn       *Signaler
+	wssConn         *WssSignaler
+	token           string
+	publicChannel   string
+	privateChannel  string
+	timeout         int
+	closeWssChannel chan int                // handle close
+	sendMsgChannel  chan interface{}        // to save message
+	processRecvData func(interface{}) error // handle incoming msg
+	isClosed        bool                    // handle close signal
 	mutex           sync.Mutex
 }
 
 // NewNotifySignal create new notify signal
-func NewNotifySignal(id string, processRecvData func([]interface{})) *MsgSignal {
+func NewMsgSignal(id, stompUrl, wssUrl, token, publicChannel, privateChannel string, timeout int, processRecvData func(interface{}) error) *MsgSignal {
 	return &MsgSignal{
-		id:              fmt.Sprintf("Notify-Signal-%s", generateID()),
-		url:             GetNotifyURL(id),
+		id:              fmt.Sprintf("Msg-Signal-%s", generateID()),
+		stompUrl:        stompUrl,
+		wssUrl:          wssUrl,
+		token:           token,
+		publicChannel:   publicChannel,
+		privateChannel:  privateChannel,
+		timeout:         timeout,
 		isClosed:        false,
 		sendMsgChannel:  make(chan interface{}, 1000),
 		processRecvData: processRecvData,
@@ -49,11 +58,21 @@ func NewNotifySignal(id string, processRecvData func([]interface{})) *MsgSignal 
 
 // Start to start signal
 func (n *MsgSignal) Start() error {
-	conn := NewWssSignaler(n.getURL(), n.getProcessRecvData(), n.getID())
-	if err := conn.Start(); err != nil {
-		return err
+	stompUrl := n.getStompURL()
+	wssUrl := n.getWssURL()
+	if len(wssUrl) > 0 {
+		conn := NewWssSignaler(wssUrl, n.getProcessRecvData(), n.getID())
+		if err := conn.Start(); err != nil {
+			return err
+		}
+		n.setWssConn(conn)
+	} else if len(stompUrl) > 0 {
+		conn := NewSignaler(stompUrl, n.getProcessRecvData(), n.getToken(), n.getPublicChan(), n.getPrivateChan(), n.getTimeout())
+		if err := conn.Start(); err != nil {
+			return err
+		}
+		n.setStompConn(conn)
 	}
-	n.setConn(conn)
 	go n.serve()
 	return nil
 }
@@ -69,12 +88,6 @@ func (n *MsgSignal) Close() {
 		return
 	}
 	chann <- 1
-}
-
-// Message to send msg to wss (sdp/ice candidate)
-func (n *MsgSignal) message(idTo string, event string, data interface{}) {
-	// send media state to client
-	n.push(SetValueToSignal(idTo, event, data))
 }
 
 func (n *MsgSignal) getCloseWssChannel() chan int {
@@ -136,13 +149,33 @@ func (n *MsgSignal) push(msg interface{}) {
 }
 
 func (n *MsgSignal) send(msg interface{}) {
-	if conn := n.getConn(); conn != nil && !n.checkClose() {
-		conn.SendText(msg)
-	}
+	//if conn := n.getConn(); conn != nil && !n.checkClose() {
+	//	conn.SendText(msg)
+	//}
 }
 
-func (n *MsgSignal) getURL() string {
-	return n.url
+func (n *MsgSignal) getStompURL() string {
+	return n.stompUrl
+}
+
+func (n *MsgSignal) getWssURL() string {
+	return n.wssUrl
+}
+
+func (n *MsgSignal) getToken() string {
+	return n.token
+}
+
+func (n *MsgSignal) getPublicChan() string {
+	return n.publicChannel
+}
+
+func (n *MsgSignal) getPrivateChan() string {
+	return n.privateChannel
+}
+
+func (n *MsgSignal) getTimeout() int {
+	return n.timeout
 }
 
 // Close to close signal
@@ -152,7 +185,7 @@ func (n *MsgSignal) close() {
 	n.removeProcessRecvData()
 }
 
-func (n *MsgSignal) getProcessRecvData() func([]interface{}) {
+func (n *MsgSignal) getProcessRecvData() func(interface{}) error {
 	return n.processRecvData
 }
 
@@ -162,27 +195,55 @@ func (n *MsgSignal) removeProcessRecvData() {
 	n.processRecvData = nil
 }
 
-func (n *MsgSignal) getConn() *WssSignaler {
-	return n.conn
+func (n *MsgSignal) getWssConn() *WssSignaler {
+	return n.wssConn
 }
 
-func (n *MsgSignal) setConn(conn *WssSignaler) {
+func (n *MsgSignal) getStompConn() *Signaler {
+	return n.stompConn
+}
+
+func (n *MsgSignal) setWssConn(conn *WssSignaler) {
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
-	n.conn = conn
+	n.wssConn = conn
 }
 
-func (n *MsgSignal) removeConn() {
+func (n *MsgSignal) setStompConn(conn *Signaler) {
 	n.mutex.Lock()
 	defer n.mutex.Unlock()
-	n.conn = nil
+	n.stompConn = conn
 }
 
-func (n *MsgSignal) closeConn() {
-	if conn := n.getConn(); conn != nil {
+func (n *MsgSignal) removeWssConn() {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+	n.wssConn = nil
+}
+
+func (n *MsgSignal) removeStompConn() {
+	n.mutex.Lock()
+	defer n.mutex.Unlock()
+	n.stompConn = nil
+}
+
+func (n *MsgSignal) closeWssConn() {
+	if conn := n.getWssConn(); conn != nil {
 		conn.close()
 		conn = nil
 	}
+}
+
+func (n *MsgSignal) closeStompConn() {
+	if conn := n.getStompConn(); conn != nil {
+		conn.close()
+		conn = nil
+	}
+}
+
+func (n *MsgSignal) closeConn() {
+	n.closeWssConn()
+	n.closeStompConn()
 }
 
 func (n *MsgSignal) getID() string {
@@ -209,46 +270,22 @@ func (n *MsgSignal) setClose(state bool) {
 	n.isClosed = state
 }
 
-// OK to send ok to peer
-func (n *MsgSignal) OK(idTo string) {
-	n.message(idTo, OkEvent, "Ready to peering")
-}
-
-// Candidate to send candidate for trickle ice
-func (n *MsgSignal) Candidate(idTo string, icecandidate *webrtc.ICECandidate) {
-	if icecandidate == nil {
-		return
-	}
-	n.message(idTo, CandidateEvent, icecandidate.ToJSON())
-}
-
-// SDP send sdp back to client
-func (n *MsgSignal) SDP(idTo string, sdp webrtc.SessionDescription) {
-	n.message(idTo, SdpEvent, sdp)
-}
-
-// HandShakeError To send if handshake error
-func (n *MsgSignal) HandShakeError(idTo string, reason string) {
-	n.message(idTo, HandShakeErrorEvent, reason)
-}
-
-// ReconnectErr to send reconnect err to client
-func (n *MsgSignal) ReconnectErr(idTo string, reason string) {
-	n.message(idTo, ReconnectErrEvent, reason)
-}
-
-// ReconnectOk to send reconnect ok to client
-func (n *MsgSignal) ReconnectOk(idTo string) {
-	n.message(idTo, ReconnectOkEvent, "reconnect ok men !!!")
-}
-
-// Message to send msg to client
-func (n *MsgSignal) Message(idTo string, msg string) {
-	n.message(idTo, MessageEvent, msg)
-}
-
 // Send send any msg to signal
 // ex: idTo, requestID, event, data
-func (n *MsgSignal) Send(inputs ...interface{}) {
-	n.push(SetValueToSignal(inputs...))
+func (n *MsgSignal) Send(method, dest string, inputs interface{}) error {
+	stompUrl := n.getStompURL()
+	wssUrl := n.getWssURL()
+	if len(wssUrl) > 0 {
+		//Send through wss node js
+		if conn := n.getWssConn(); conn != nil {
+			conn.SendText(inputs)
+		}
+	} else if len(stompUrl) > 0 {
+		//Send through stomp
+		if conn := n.getStompConn(); conn != nil {
+			conn.SendAPI(method, dest, inputs)
+		}
+	}
+	return nil
+	//n.push(SetValueToSignal(inputs...))
 }
