@@ -14,18 +14,6 @@ import (
 	"time"
 )
 
-// Wss constant
-const (
-	// Time allowed to write a message to the peer.
-	writeWait = 30 * time.Second
-
-	// Time allowed to read a message from server.
-	readWait = 30 * time.Second
-
-	// Time allowed to read the next pong message from the peer.
-	pongWait = stomp.DefaultHeartBeatError // 60 * time.Second
-)
-
 var disConnectTimes = 0
 
 // Signaler to connect signal

@@ -12,6 +12,42 @@ import (
 	"github.com/dchest/uniuri"
 )
 
+// string
+var (
+	// OkEvent linter
+	OkEvent = "ok"
+	// SdpEvent linter
+	SdpEvent = "sdp"
+	// CandidateEvent linter
+	CandidateEvent = "candidate"
+	// FullslotEvent linter
+	FullslotEvent = "fullslot"
+	// HandShakeErrorEvent linter
+	HandShakeErrorEvent = "handshakeError"
+	// SeatStatesEvent linter
+	SeatStatesEvent = "seat"
+	// ReconnectEvent linter
+	ReconnectEvent = "reconnect"
+	// ReconnectOkEvent linter
+	ReconnectOkEvent = "reconnect-ok"
+	// ReconnectEvent linter
+	ReconnectErrEvent = "reconnectErr"
+	// MessageEvent linter
+	MessageEvent = "message"
+	// DataEvent linter
+	DataEvent = "data"
+	// NewStreamEvent linter
+	NewStreamEvent = "NEW_STREAM"
+	// RemoveStreamEvent linter
+	RemoveStreamEvent = "REMOVE_STREAM"
+	// RemoveStreamEvent linter
+	RemoveRelayEvent = "REMOVE_RELAY"
+	// FatherTrackKind linter
+	FatherTrackKind = "track"
+	// FatherTransceiverkind
+	FatherTransceiverkind = "transceiver"
+)
+
 // Handlepanic prevent panic
 func handlepanic(data ...interface{}) {
 	if a := recover(); a != nil {
@@ -80,4 +116,10 @@ func recvOneEach(chs ...chan *stomp.Message) (rs []*stomp.Message, ok bool) {
 		rs, ok = append(rs, r), ok && ok2
 	}
 	return rs, ok
+}
+
+// SetValueToSignal to set to signal
+func SetValueToSignal(inputs ...interface{}) []interface{} {
+	var data []interface{}
+	return append(data, inputs...)
 }
