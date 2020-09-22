@@ -175,20 +175,26 @@ func (s *Signaler) ConnectAndSubscribe() error {
 	if err := s.connect(0); err != nil {
 		return err
 	}
-	log.Info("Connect STOMP successfully")
+	log.Error(fmt.Sprintf("Connect STOMP successfully at time: %v(ms)", time.Now()))
 	// subscribe room channel to listen to response from STOMP server
 	if publicChannel := s.getPublicChannel(); len(publicChannel) > 0 {
+		start := time.Now().UnixNano() / int64(time.Millisecond) //in ms
 		if _, err := s.SubscribePublic(publicChannel); err != nil {
 			return err
 		}
 		log.Info(fmt.Sprintf("Subscribe successfully, start reading: %s", publicChannel))
+		end := time.Now().UnixNano() / int64(time.Millisecond) //in ms
+		log.Error(fmt.Sprintf("Subscribe %s successfully at time: %v(ms), take %d ms", publicChannel, time.Now(), end-start))
 		go s.reading(publicChannel, true)
 	}
 	if privateChannel := s.getPrivateChannel(); len(privateChannel) > 0 {
+		start := time.Now().UnixNano() / int64(time.Millisecond) //in ms
 		if _, err := s.SubscribePrivate(privateChannel); err != nil {
 			return err
 		}
 		log.Info(fmt.Sprintf("Subscribe successfully, start reading: %s", privateChannel))
+		end := time.Now().UnixNano() / int64(time.Millisecond) //in ms
+		log.Error(fmt.Sprintf("Subscribe %s successfully at time: %v(ms), take %d ms", privateChannel, time.Now(), end-start))
 		go s.reading(privateChannel, false)
 	}
 
@@ -712,7 +718,7 @@ func (s *Signaler) reading(dest string, isPublic bool) {
 		if recv == nil {
 			continue
 		}
-		log.Error(fmt.Sprintf("Received new item from channel %s", dest))
+		log.Error(fmt.Sprintf("Received new item from channel %s at time: %v", dest, time.Now()))
 
 		s.info(recv)
 		s.pushMsg(recv)
