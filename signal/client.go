@@ -1,6 +1,7 @@
 package signal
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/websocket"
@@ -9,6 +10,8 @@ import (
 	"github.com/nnanhthu/go-stomp-update/frame"
 	cli "github.com/nnanhthu/signal/client"
 	"github.com/pkg/errors"
+	"io/ioutil"
+	"net/http"
 	"reflect"
 	"sync"
 	"time"
@@ -418,81 +421,81 @@ func (s *Signaler) pushError(err string) {
 }
 
 // Send message to server through restful API
-//func (s *Signaler) SendPostAPI(dest string, data interface{}) (int, error) {
-//	timeout := s.getTimeout()
-//	jsonValue, err := json.Marshal(data)
-//	if err != nil {
-//		return http.StatusServiceUnavailable, err
-//	}
-//	var netTransport = &http.Transport{
-//		//Dial: (&net.Dialer{
-//		//	Timeout: 5 * time.Second,
-//		//}).Dial,
-//		TLSHandshakeTimeout: timeout,
-//	}
-//	var netClient = &http.Client{
-//		Timeout:   timeout,
-//		Transport: netTransport,
-//	}
-//	request, err := http.NewRequest("POST", dest, bytes.NewBuffer(jsonValue))
-//	//request, err := netClient.Post(dest, "application/json", bytes.NewBuffer(jsonValue))
-//	if err != nil {
-//		return http.StatusServiceUnavailable, err
-//	}
-//	request.Header.Set("Content-Type", "application/json")
-//	request.Header.Set("Authorization", s.getToken())
-//	//client := &http.Client{}
-//	response, err := netClient.Do(request)
-//	if err != nil {
-//		log.Stack(fmt.Sprintf("The HTTP request failed with error %s\n", err))
-//		return http.StatusServiceUnavailable, err
-//	}
-//	if response.StatusCode != http.StatusOK {
-//		log.Stack(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
-//		return response.StatusCode, errors.New(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
-//	}
-//
-//	defer response.Body.Close()
-//	return response.StatusCode, nil
-//}
-//
-//func (s *Signaler) SendGetAPI(dest string) (interface{}, int, error) {
-//	timeout := s.getTimeout()
-//	var netTransport = &http.Transport{
-//		TLSHandshakeTimeout: timeout,
-//	}
-//	var netClient = &http.Client{
-//		Timeout:   timeout,
-//		Transport: netTransport,
-//	}
-//	request, err := http.NewRequest("GET", dest, nil)
-//	if err != nil {
-//		return nil, http.StatusServiceUnavailable, err
-//	}
-//	//request.Header.Set("Content-Type", "application/json")
-//	request.Header.Set("Authorization", s.getToken())
-//	response, err := netClient.Do(request)
-//	if err != nil {
-//		log.Stack(fmt.Sprintf("The HTTP request failed with error %s\n", err))
-//		return nil, http.StatusServiceUnavailable, err
-//	}
-//	if response.StatusCode != http.StatusOK {
-//		log.Stack(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
-//		return nil, response.StatusCode, errors.New(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
-//	}
-//
-//	defer response.Body.Close()
-//	body, err := ioutil.ReadAll(response.Body)
-//	if err != nil {
-//		return nil, http.StatusServiceUnavailable, errors.Wrap(err, "failed to read body")
-//	}
-//	var res interface{}
-//	err = json.Unmarshal(body, &res)
-//	if err != nil {
-//		return nil, http.StatusServiceUnavailable, err
-//	}
-//	return res, response.StatusCode, nil
-//}
+func (s *Signaler) SendPostAPI(dest string, data interface{}) (int, error) {
+	timeout := s.getTimeout()
+	jsonValue, err := json.Marshal(data)
+	if err != nil {
+		return http.StatusServiceUnavailable, err
+	}
+	var netTransport = &http.Transport{
+		//Dial: (&net.Dialer{
+		//	Timeout: 5 * time.Second,
+		//}).Dial,
+		TLSHandshakeTimeout: timeout,
+	}
+	var netClient = &http.Client{
+		Timeout:   timeout,
+		Transport: netTransport,
+	}
+	request, err := http.NewRequest("POST", dest, bytes.NewBuffer(jsonValue))
+	//request, err := netClient.Post(dest, "application/json", bytes.NewBuffer(jsonValue))
+	if err != nil {
+		return http.StatusServiceUnavailable, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", s.getToken())
+	//client := &http.Client{}
+	response, err := netClient.Do(request)
+	if err != nil {
+		log.Stack(fmt.Sprintf("The HTTP request failed with error %s\n", err))
+		return http.StatusServiceUnavailable, err
+	}
+	if response.StatusCode != http.StatusOK {
+		log.Stack(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+		return response.StatusCode, errors.New(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+	}
+
+	defer response.Body.Close()
+	return response.StatusCode, nil
+}
+
+func (s *Signaler) SendGetAPI(dest string) (interface{}, int, error) {
+	timeout := s.getTimeout()
+	var netTransport = &http.Transport{
+		TLSHandshakeTimeout: timeout,
+	}
+	var netClient = &http.Client{
+		Timeout:   timeout,
+		Transport: netTransport,
+	}
+	request, err := http.NewRequest("GET", dest, nil)
+	if err != nil {
+		return nil, http.StatusServiceUnavailable, err
+	}
+	//request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", s.getToken())
+	response, err := netClient.Do(request)
+	if err != nil {
+		log.Stack(fmt.Sprintf("The HTTP request failed with error %s\n", err))
+		return nil, http.StatusServiceUnavailable, err
+	}
+	if response.StatusCode != http.StatusOK {
+		log.Stack(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+		return nil, response.StatusCode, errors.New(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+	}
+
+	defer response.Body.Close()
+	body, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		return nil, http.StatusServiceUnavailable, errors.Wrap(err, "failed to read body")
+	}
+	var res interface{}
+	err = json.Unmarshal(body, &res)
+	if err != nil {
+		return nil, http.StatusServiceUnavailable, err
+	}
+	return res, response.StatusCode, nil
+}
 
 func (s *Signaler) SendAPI(method, dest string, data interface{}) (interface{}, int, error) {
 	cls, _ := cli.NewClient(dest, s.getToken(), s.getTimeout())
@@ -513,7 +516,7 @@ func (s *Signaler) Send(dest string, contentType string, data []byte) error {
 			s.RestartConn()
 			return err
 		}
-		log.Stack(fmt.Sprintf("Sent successfully"))
+		log.Error(fmt.Sprintf("Sent message to stomp dest %s successfully", dest))
 		return nil
 	}
 	return fmt.Errorf("Current connection is nil")
