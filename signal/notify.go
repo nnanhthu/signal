@@ -272,20 +272,20 @@ func (n *MsgSignal) setClose(state bool) {
 
 // Send send any msg to signal
 // ex: idTo, requestID, event, data
-func (n *MsgSignal) Send(method, dest string, inputs interface{}) (interface{}, int, error) {
-	stompUrl := n.getStompURL()
-	wssUrl := n.getWssURL()
-	if len(wssUrl) > 0 {
-		//Send through wss node js
-		if conn := n.getWssConn(); conn != nil {
-			conn.SendText(inputs)
-		}
-	} else if len(stompUrl) > 0 {
-		//Send through stomp
-		if conn := n.getStompConn(); conn != nil {
-			conn.SendAPI(method, dest, inputs)
-		}
-	}
-	return nil
-	//n.push(SetValueToSignal(inputs...))
-}
+//func (n *MsgSignal) Send(method, dest string, inputs interface{}) (interface{}, int, error) {
+//	stompUrl := n.getStompURL()
+//	wssUrl := n.getWssURL()
+//	if len(wssUrl) > 0 {
+//		//Send through wss node js
+//		if conn := n.getWssConn(); conn != nil {
+//			conn.SendText(inputs)
+//		}
+//	} else if len(stompUrl) > 0 {
+//		//Send through stomp
+//		if conn := n.getStompConn(); conn != nil {
+//			conn.SendAPI(method, dest, inputs)
+//		}
+//	}
+//	return nil
+//	//n.push(SetValueToSignal(inputs...))
+//}
