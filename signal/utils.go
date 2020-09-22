@@ -72,7 +72,7 @@ func paddedRandomInt(max int) string {
 }
 
 func createUrl(url string) string {
-	return url + "/" + paddedRandomInt(999) + "/" + uniuri.New() + "/websocket"
+	return url + paddedRandomInt(999) + "/" + uniuri.New() + "/websocket"
 }
 
 func remove(items []stomp.Subscription, item stomp.Subscription) []stomp.Subscription {
