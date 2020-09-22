@@ -44,7 +44,7 @@ func NewWssSignaler(url string, processRecvData func(interface{}) error, name st
 		Name:            name,
 		processRecvData: processRecvData,
 		closeChann:      make(chan int),
-		msgChann:        make(chan []interface{}, 1000),
+		msgChann:        make(chan []interface{}, 10000),
 		errChan:         make(chan string, 10),
 		restartChann:    make(chan int, 10),
 		sendMsgChann:    make(chan interface{}, 1000),

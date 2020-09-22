@@ -47,7 +47,7 @@ func NewSignaler(url string, processRecvData func(interface{}) error, token, pub
 		privateChannel:  privateChannel,
 		processRecvData: processRecvData,
 		closeChann:      make(chan int),
-		msgChann:        make(chan *stomp.Message, 1000),
+		msgChann:        make(chan *stomp.Message, 10000),
 		errChan:         make(chan string, 10),
 		restartChann:    make(chan int, 10),
 		sendMsgChann:    make(chan interface{}, 1000),
@@ -172,20 +172,20 @@ func (s *Signaler) ConnectAndSubscribe() error {
 	if err := s.connect(0); err != nil {
 		return err
 	}
-	log.Stack("Connect STOMP successfully")
+	log.Info("Connect STOMP successfully")
 	// subscribe room channel to listen to response from STOMP server
 	if publicChannel := s.getPublicChannel(); len(publicChannel) > 0 {
 		if _, err := s.SubscribePublic(publicChannel); err != nil {
 			return err
 		}
-		log.Stack("Subscribe successfully, start reading: %s", publicChannel)
+		log.Info(fmt.Sprintf("Subscribe successfully, start reading: %s", publicChannel))
 		go s.reading(publicChannel, true)
 	}
 	if privateChannel := s.getPrivateChannel(); len(privateChannel) > 0 {
 		if _, err := s.SubscribePrivate(privateChannel); err != nil {
 			return err
 		}
-		log.Stack("Subscribe successfully, start reading: %s", privateChannel)
+		log.Info(fmt.Sprintf("Subscribe successfully, start reading: %s", privateChannel))
 		go s.reading(privateChannel, false)
 	}
 
@@ -362,7 +362,7 @@ func (s *Signaler) handleCloseHandler(code int, text string) error {
 
 // info to export log info
 func (s *Signaler) info(v ...interface{}) {
-	log.Stack(fmt.Sprintf("Signal log: [%v]", v))
+	log.Info(fmt.Sprintf("Signal log: [%v]", v))
 }
 
 // error to export error info
@@ -693,7 +693,7 @@ func (s *Signaler) ReceiveFromPrivate() (*stomp.Message, error) {
 func (s *Signaler) reading(dest string, isPublic bool) {
 	defer s.RestartConn()
 	for {
-		log.Stack(fmt.Sprintf("Number of disconnect: %f", disConnectTimes))
+		//log.Stack(fmt.Sprintf("Number of disconnect: %f", disConnectTimes))
 
 		var recv *stomp.Message
 		var err error
@@ -709,7 +709,7 @@ func (s *Signaler) reading(dest string, isPublic bool) {
 		if recv == nil {
 			continue
 		}
-		log.Stack(fmt.Sprintf("Received new item"))
+		log.Error(fmt.Sprintf("Received new item from channel %s", dest))
 
 		s.info(recv)
 		s.pushMsg(recv)

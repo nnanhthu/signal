@@ -272,7 +272,7 @@ func (n *MsgSignal) setClose(state bool) {
 
 // Send send any msg to signal
 // ex: idTo, requestID, event, data
-func (n *MsgSignal) Send(method, dest string, inputs interface{}) error {
+func (n *MsgSignal) Send(method, dest string, inputs interface{}) (interface{}, int, error) {
 	stompUrl := n.getStompURL()
 	wssUrl := n.getWssURL()
 	if len(wssUrl) > 0 {
