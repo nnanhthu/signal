@@ -760,9 +760,14 @@ func (s *Signaler) Close() {
 
 // Start to running wss process
 func (s *Signaler) Start() error {
+	s.info("Start connect and subscribe STOMP channel")
+	start := time.Now().UnixNano() / int64(time.Millisecond) //in ms
 	if err := s.ConnectAndSubscribe(); err != nil {
 		return err
 	}
+	end := time.Now().UnixNano() / int64(time.Millisecond) //in ms
+	total := end - start
+	s.info(fmt.Sprintf("Finish connect and subscribe with time: %d (ms)", total))
 
 	if publicChannel := s.getPublicChannel(); len(publicChannel) > 0 {
 		go s.serve(publicChannel)
