@@ -742,7 +742,7 @@ func (s *Signaler) reading(dest string, isPublic bool) {
 		log.Error(fmt.Sprintf("**********Received new item (MsgId: %s _ Event: %s _ Data: %v) from channel %s at time: %v **********",
 			msgId, event, data, dest, time.Now()))
 
-		s.info(recv)
+		//s.info(recv)
 		s.pushMsg(recv, msgId, event, data)
 		recv = nil
 	}
@@ -765,7 +765,8 @@ func (s *Signaler) serve(dest string) {
 				s.handleMsg(msg)
 				end := time.Now().UnixNano() / int64(time.Millisecond) //in ms
 				total := end - start
-				log.Debug(fmt.Sprintf("[%v] processing time of msg: %v", total, msg))
+				msgId, event, data := parseMsg(msg)
+				log.Debug(fmt.Sprintf("[%v] processing time of msg: %s, %s, %v", total, msgId, event, data))
 			}()
 		case data := <-s.getSendMsgchann():
 			//byteData, _ := json.Marshal(data)
