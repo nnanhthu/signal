@@ -535,20 +535,21 @@ func (s *Signaler) pushSendMsg(msg interface{}) {
 		return
 	}
 	if chann := s.getSendMsgchann(); chann != nil {
-		log.Stack(fmt.Sprintf("Number of sent msg in chan: %f", len(chann)))
+		log.Stack(fmt.Sprintf("Number of sent msg in chan: %d", len(chann)))
 		chann <- msg
 	}
 }
 
 // pushMsg call handle msg callback (after receiving msg from STOMP server)
-func (s *Signaler) pushMsg(msg *stomp.Message) {
+func (s *Signaler) pushMsg(msg *stomp.Message, msgId string, event string, data interface{}) {
 	if s.checkClose() && (s.getMsgchann() != nil) {
 		s.closeMsgChann()
 		return
 	}
 	if chann := s.getMsgchann(); chann != nil {
-		log.Stack(fmt.Sprintf("Number of received msg in chan: %f", len(chann)))
+		log.Error(fmt.Sprintf("Number of received msg in chan: %d", len(chann)))
 		chann <- msg
+		log.Error(fmt.Sprintf("Add new msg (%s _ %s _ %v) to queue at time: %v", msgId, event, data, time.Now()))
 	}
 }
 
@@ -589,7 +590,7 @@ func (s *Signaler) handleMsg(msg *stomp.Message) {
 		err := json.Unmarshal(msg.Body, &res)
 		//Add message header before sending Ack
 
-		s.info(fmt.Sprintf("ADD ACK HEADER TO MESSAGE: %v.", err))
+		//s.info(fmt.Sprintf("ADD ACK HEADER TO MESSAGE: %v.", err))
 		msg.Header.Add(frame.Ack, "messageId")
 		if err != nil {
 			log.Stack(fmt.Sprintf("Signaler recv err: %v", err))
@@ -699,6 +700,24 @@ func (s *Signaler) ReceiveFromPrivate() (*stomp.Message, error) {
 	return res, nil
 }
 
+func parseMsg(recv *stomp.Message) (string, string, interface{}) {
+	var values interface{}
+	err := json.Unmarshal(recv.Body, &values)
+	if err != nil {
+		res, ok := values.(map[string]interface{})
+		if ok {
+			messageId := ""
+			if res["messageId"] != nil {
+				messageId = res["messageId"].(string)
+			}
+			if res != nil && res["name"] != nil {
+				return messageId, res["name"].(string), res["data"]
+			}
+		}
+	}
+	return "", "", nil
+}
+
 func (s *Signaler) reading(dest string, isPublic bool) {
 	defer s.RestartConn()
 	for {
@@ -718,10 +737,13 @@ func (s *Signaler) reading(dest string, isPublic bool) {
 		if recv == nil {
 			continue
 		}
-		log.Error(fmt.Sprintf("Received new item from channel %s at time: %v", dest, time.Now()))
+		//Parse recv to log
+		msgId, event, data := parseMsg(recv)
+		log.Error(fmt.Sprintf("**********Received new item (MsgId: %s _ Event: %s _ Data: %v) from channel %s at time: %v **********",
+			msgId, event, data, dest, time.Now()))
 
 		s.info(recv)
-		s.pushMsg(recv)
+		s.pushMsg(recv, msgId, event, data)
 		recv = nil
 	}
 }
