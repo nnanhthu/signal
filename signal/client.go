@@ -711,7 +711,12 @@ func parseMsg(recv *stomp.Message) (string, string, interface{}) {
 				messageId = res["messageId"].(string)
 			}
 			if res != nil && res["name"] != nil {
-				return messageId, res["name"].(string), res["data"]
+				if res["data"] != nil {
+					d, ok := res["data"].(map[string]interface{})
+					if ok {
+						return messageId, res["name"].(string), d["systemTime"]
+					}
+				}
 			}
 		}
 	}
@@ -738,12 +743,22 @@ func (s *Signaler) reading(dest string, isPublic bool) {
 			continue
 		}
 		//Parse recv to log
-		msgId, event, data := parseMsg(recv)
-		log.Error(fmt.Sprintf("**********Received new item (MsgId: %s _ Event: %s _ Data: %v) from channel %s at time: %v **********",
-			msgId, event, data, dest, time.Now()))
+		msgId, event, systemTime := parseMsg(recv)
+		urgent := false
+		currentTime := time.Now().UnixNano() / int64(time.Millisecond)
+		if systemTime != nil {
+			sysTime, ok := systemTime.(int64)
+			if ok {
+				if currentTime-sysTime > 1000 {
+					urgent = true
+				}
+			}
+		}
+		log.Error(fmt.Sprintf("**********[URGENT:%t]Received new item (MsgId: %s _ Event: %s _ systemTime: %v) from channel %s at time: %v **********",
+			urgent, msgId, event, systemTime, dest, time.Now()))
 
 		//s.info(recv)
-		s.pushMsg(recv, msgId, event, data)
+		s.pushMsg(recv, msgId, event, systemTime)
 		recv = nil
 	}
 }
@@ -766,7 +781,11 @@ func (s *Signaler) serve(dest string) {
 				end := time.Now().UnixNano() / int64(time.Millisecond) //in ms
 				total := end - start
 				msgId, event, data := parseMsg(msg)
-				log.Debug(fmt.Sprintf("[%v] processing time of msg: %s, %s, %v", total, msgId, event, data))
+				urgent := false
+				if total > 1000 {
+					urgent = true
+				}
+				log.Debug(fmt.Sprintf("[URGENT:%t][%v] processing time of msg: %s, %s, %v", urgent, total, msgId, event, data))
 			}()
 		case data := <-s.getSendMsgchann():
 			//byteData, _ := json.Marshal(data)
