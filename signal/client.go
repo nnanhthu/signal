@@ -760,7 +760,13 @@ func (s *Signaler) serve(dest string) {
 		case err := <-s.getErrchann():
 			s.error(err)
 		case msg := <-s.getMsgchann():
-			s.handleMsg(msg)
+			go func() {
+				start := time.Now().UnixNano() / int64(time.Millisecond) //in ms
+				s.handleMsg(msg)
+				end := time.Now().UnixNano() / int64(time.Millisecond) //in ms
+				total := end - start
+				log.Debug(fmt.Sprintf("[%v] processing time of msg: %v", total, msg))
+			}()
 		case data := <-s.getSendMsgchann():
 			//byteData, _ := json.Marshal(data)
 			//obj := &SendObj{}
