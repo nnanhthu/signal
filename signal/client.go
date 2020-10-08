@@ -783,12 +783,12 @@ func (s *Signaler) serve(dest string) {
 				s.handleMsg(msg)
 				end := time.Now().UnixNano() / int64(time.Millisecond) //in ms
 				total := end - start
-				msgId, event, data := parseMsg(msg)
+				data := parseMsg(msg)
 				urgent := false
 				if total > 1000 {
 					urgent = true
 				}
-				log.Debug(fmt.Sprintf("[URGENT:%t][%v] processing time of msg: %s, %s, %v", urgent, total, msgId, event, data))
+				log.Debug(fmt.Sprintf("[URGENT:%t][%v] processing time of msg: %v", urgent, total, data))
 			}()
 		case data := <-s.getSendMsgchann():
 			//byteData, _ := json.Marshal(data)
