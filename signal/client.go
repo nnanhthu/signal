@@ -541,7 +541,7 @@ func (s *Signaler) pushSendMsg(msg interface{}) {
 }
 
 // pushMsg call handle msg callback (after receiving msg from STOMP server)
-func (s *Signaler) pushMsg(msg *stomp.Message, msgId string, event string, data interface{}) {
+func (s *Signaler) pushMsg(msg *stomp.Message, data interface{}) {
 	if s.checkClose() && (s.getMsgchann() != nil) {
 		s.closeMsgChann()
 		return
@@ -549,7 +549,7 @@ func (s *Signaler) pushMsg(msg *stomp.Message, msgId string, event string, data 
 	if chann := s.getMsgchann(); chann != nil {
 		log.Error(fmt.Sprintf("Number of received msg in chan: %d", len(chann)))
 		chann <- msg
-		log.Error(fmt.Sprintf("Add new msg (%s _ %s _ %v) to queue at time: %v", msgId, event, data, time.Now()))
+		log.Error(fmt.Sprintf("Add new msg (%v) to queue at time: %v", data, time.Now()))
 	}
 }
 
@@ -700,27 +700,28 @@ func (s *Signaler) ReceiveFromPrivate() (*stomp.Message, error) {
 	return res, nil
 }
 
-func parseMsg(recv *stomp.Message) (string, string, interface{}) {
+func parseMsg(recv *stomp.Message) interface{} {
 	var values interface{}
 	err := json.Unmarshal(recv.Body, &values)
 	if err != nil {
-		res, ok := values.(map[string]interface{})
-		if ok {
-			messageId := ""
-			if res["messageId"] != nil {
-				messageId = res["messageId"].(string)
-			}
-			if res != nil && res["name"] != nil {
-				if res["data"] != nil {
-					d, ok := res["data"].(map[string]interface{})
-					if ok {
-						return messageId, res["name"].(string), d["systemTime"]
-					}
-				}
-			}
-		}
+		return values
+		//res, ok := values.(map[string]interface{})
+		//if ok {
+		//	messageId := ""
+		//	if res["messageId"] != nil {
+		//		messageId = res["messageId"].(string)
+		//	}
+		//	if res != nil && res["name"] != nil {
+		//		if res["data"] != nil {
+		//			d, ok := res["data"].(map[string]interface{})
+		//			if ok {
+		//				return messageId, res["name"].(string), d["systemTime"]
+		//			}
+		//		}
+		//	}
+		//}
 	}
-	return "", "", nil
+	return nil
 }
 
 func (s *Signaler) reading(dest string, isPublic bool) {
@@ -743,22 +744,24 @@ func (s *Signaler) reading(dest string, isPublic bool) {
 			continue
 		}
 		//Parse recv to log
-		msgId, event, systemTime := parseMsg(recv)
+		msgData := parseMsg(recv)
 		urgent := false
-		currentTime := time.Now().UnixNano() / int64(time.Millisecond)
-		if systemTime != nil {
-			sysTime, ok := systemTime.(int64)
-			if ok {
-				if currentTime-sysTime > 1000 {
-					urgent = true
-				}
-			}
-		}
-		log.Error(fmt.Sprintf("**********[URGENT:%t]Received new item (MsgId: %s _ Event: %s _ systemTime: %v) from channel %s at time: %v **********",
-			urgent, msgId, event, systemTime, dest, time.Now()))
+		//currentTime := time.Now().UnixNano() / int64(time.Millisecond)
+		//if systemTime != nil {
+		//	sysTime, ok := systemTime.(int64)
+		//	if ok {
+		//		if currentTime-sysTime > 1000 {
+		//			urgent = true
+		//		}
+		//	}
+		//}
+		//log.Error(fmt.Sprintf("**********[URGENT:%t]Received new item (MsgId: %s _ Event: %s _ systemTime: %v) from channel %s at time: %v **********",
+		//	urgent, msgId, event, systemTime, dest, time.Now()))
+		log.Error(fmt.Sprintf("**********[URGENT:%t]Received new item (%v) from channel %s at time: %v **********",
+			urgent, msgData, dest, time.Now()))
 
 		//s.info(recv)
-		s.pushMsg(recv, msgId, event, systemTime)
+		s.pushMsg(recv, msgData)
 		recv = nil
 	}
 }
