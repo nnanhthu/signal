@@ -465,6 +465,56 @@ func (s *Signaler) SendPostAPI(dest string, data interface{}) (int, error) {
 	return response.StatusCode, nil
 }
 
+// Send message to get peer conn list through restful API
+func (s *Signaler) GetPeerConnListAPI(dest string, data interface{}) (interface{}, int, error) {
+	timeout := s.getTimeout()
+	jsonValue, err := json.Marshal(data)
+	if err != nil {
+		return nil, http.StatusServiceUnavailable, err
+	}
+	var netTransport = &http.Transport{
+		//Dial: (&net.Dialer{
+		//	Timeout: 5 * time.Second,
+		//}).Dial,
+		TLSHandshakeTimeout: timeout,
+	}
+	var netClient = &http.Client{
+		Timeout:   timeout,
+		Transport: netTransport,
+	}
+	request, err := http.NewRequest("POST", dest, bytes.NewBuffer(jsonValue))
+	//request, err := netClient.Post(dest, "application/json", bytes.NewBuffer(jsonValue))
+	if err != nil {
+		return nil, http.StatusServiceUnavailable, err
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", s.getToken())
+	//client := &http.Client{}
+	response, err := netClient.Do(request)
+	if err != nil {
+		log.Stack(fmt.Sprintf("The HTTP request failed with error %s\n", err))
+		return nil, http.StatusServiceUnavailable, err
+	}
+	if response.StatusCode != http.StatusOK {
+		log.Stack(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+		return nil, response.StatusCode, errors.New(fmt.Sprintf("The HTTP request failed with status %s\n", response.Status))
+	}
+	if response.Body != nil {
+		defer response.Body.Close()
+		body, err := ioutil.ReadAll(response.Body)
+		if err != nil {
+			return nil, http.StatusServiceUnavailable, errors.Wrap(err, "failed to read body")
+		}
+		var res interface{}
+		err = json.Unmarshal(body, &res)
+		if err != nil {
+			return nil, http.StatusServiceUnavailable, err
+		}
+		return res, response.StatusCode, nil
+	}
+	return nil, response.StatusCode, nil
+}
+
 func (s *Signaler) SendGetAPI(dest string) (interface{}, int, error) {
 	timeout := s.getTimeout()
 	var netTransport = &http.Transport{
