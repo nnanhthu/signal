@@ -11,6 +11,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	log "github.com/lamhai1401/gologs/logs"
+	cli "github.com/nnanhthu/signal/client"
 )
 
 // Wss constant
@@ -24,37 +25,41 @@ const (
 
 // Signaler to connect signal
 type WssSignaler struct {
-	url             string
-	Name            string                  // signal name father or master or child
+	url string
+	//Name            string                  // signal name father or master or child
 	conn            *websocket.Conn         // handle connection
 	errChan         chan string             // err to reconnect
 	closeChann      chan int                // close all sk
 	restartChann    chan int                // to handler restart msg
-	msgChann        chan []interface{}      // msg chann
+	msgChann        chan interface{}        // msg chann
 	sendMsgChann    chan interface{}        // send msg
 	processRecvData func(interface{}) error // to handle process when mess is coming
-	isClosed        bool                    //
-	mutex           sync.Mutex              // handle concurrent
+	token           string
+	timeout         time.Duration
+	isClosed        bool       //
+	mutex           sync.Mutex // handle concurrent
 }
 
 // NewSignaler to create new signaler
-func NewWssSignaler(url string, processRecvData func(interface{}) error, name string) *WssSignaler {
+func NewWssSignaler(url string, processRecvData func(interface{}) error, token string, timeout int) *WssSignaler {
 	signaler := &WssSignaler{
-		url:             url,
-		Name:            name,
+		url: url,
+		//Name:            name,
 		processRecvData: processRecvData,
 		closeChann:      make(chan int),
-		msgChann:        make(chan []interface{}, 10000),
+		msgChann:        make(chan interface{}, 10000),
 		errChan:         make(chan string, 10),
 		restartChann:    make(chan int, 10),
 		sendMsgChann:    make(chan interface{}, 1000),
+		token:           token,
+		timeout:         time.Duration(timeout) * time.Second,
 	}
 	return signaler
 }
 
-func (s *WssSignaler) getName() string {
-	return s.Name
-}
+//func (s *WssSignaler) getName() string {
+//	return s.Name
+//}
 
 func (s *WssSignaler) getClosechann() chan int {
 	return s.closeChann
@@ -72,7 +77,7 @@ func (s *WssSignaler) getErrchann() chan string {
 	return s.errChan
 }
 
-func (s *WssSignaler) getMsgchann() chan []interface{} {
+func (s *WssSignaler) getMsgchann() chan interface{} {
 	return s.msgChann
 }
 
@@ -92,6 +97,14 @@ func (s *WssSignaler) getProcessRecvData() func(interface{}) error {
 
 func (s *WssSignaler) getConn() *websocket.Conn {
 	return s.conn
+}
+
+func (s *WssSignaler) getTimeout() time.Duration {
+	return s.timeout
+}
+
+func (s *WssSignaler) getToken() string {
+	return s.token
 }
 
 func (s *WssSignaler) setConn(conn *websocket.Conn) {
@@ -115,12 +128,12 @@ func (s *WssSignaler) getURL() string {
 
 // info to export log info
 func (s *WssSignaler) info(v ...interface{}) {
-	log.Info(fmt.Sprintf("[%s] %v", s.getName(), v))
+	log.Info(fmt.Sprintf("[%s] %v", s.getURL(), v))
 }
 
 // error to export error info
 func (s *WssSignaler) error(v ...interface{}) {
-	log.Error(fmt.Sprintf("[%s] %v", s.getName(), v))
+	log.Error(fmt.Sprintf("[%s] %v", s.getURL(), v))
 }
 
 func (s *WssSignaler) handlePingHandler(message string) error {
@@ -254,7 +267,7 @@ func (s *WssSignaler) pushSendMsg(msg interface{}) {
 }
 
 // pushMsg call handle msg callback
-func (s *WssSignaler) pushMsg(msg []interface{}) {
+func (s *WssSignaler) pushMsg(msg interface{}) {
 	if s.checkClose() && (s.getMsgchann() != nil) {
 		s.closeMsgChann()
 		return
@@ -372,9 +385,9 @@ func (s *WssSignaler) Start() error {
 }
 
 // Recv to get result from ws
-func (s *WssSignaler) recv() ([]interface{}, error) {
+func (s *WssSignaler) recv() (interface{}, error) {
 
-	var result []interface{}
+	var result interface{}
 
 	if conn := s.getConn(); conn != nil {
 		_, resp, err := conn.ReadMessage()
@@ -437,4 +450,10 @@ func (s *WssSignaler) keepAlive(timeout time.Duration) {
 			return
 		}
 	}
+}
+
+func (s *WssSignaler) SendAPI(method, dest string, data interface{}) (interface{}, int, error) {
+	cls, _ := cli.NewClient(dest, s.getToken(), s.getTimeout())
+	defer cls.Close()
+	return cls.API.Call(method, data)
 }

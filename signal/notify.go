@@ -61,7 +61,7 @@ func (n *MsgSignal) Start() error {
 	stompUrl := n.getStompURL()
 	wssUrl := n.getWssURL()
 	if len(wssUrl) > 0 {
-		conn := NewWssSignaler(wssUrl, n.getProcessRecvData(), n.getID())
+		conn := NewWssSignaler(wssUrl, n.getProcessRecvData(), n.getToken(), n.getTimeout())
 		if err := conn.Start(); err != nil {
 			return err
 		}
