@@ -828,18 +828,19 @@ func (s *Signaler) serve(dest string) {
 		case err := <-s.getErrchann():
 			s.error(err)
 		case msg := <-s.getMsgchann():
-			go func() {
-				start := time.Now().UnixNano() / int64(time.Millisecond) //in ms
-				s.handleMsg(msg)
-				end := time.Now().UnixNano() / int64(time.Millisecond) //in ms
-				total := end - start
-				data := parseMsg(msg)
-				urgent := false
-				if total > 1000 {
-					urgent = true
-				}
-				log.Debug(fmt.Sprintf("[URGENT:%t][%v] processing time of msg: %v", urgent, total, data))
-			}()
+			s.handleMsg(msg)
+			//go func() {
+			//	start := time.Now().UnixNano() / int64(time.Millisecond) //in ms
+			//	s.handleMsg(msg)
+			//	end := time.Now().UnixNano() / int64(time.Millisecond) //in ms
+			//	total := end - start
+			//	data := parseMsg(msg)
+			//	urgent := false
+			//	if total > 1000 {
+			//		urgent = true
+			//	}
+			//	log.Debug(fmt.Sprintf("[URGENT:%t][%v] processing time of msg: %v", urgent, total, data))
+			//}()
 		case data := <-s.getSendMsgchann():
 			//byteData, _ := json.Marshal(data)
 			//obj := &SendObj{}

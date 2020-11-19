@@ -178,16 +178,34 @@ func (s *WssSignaler) send(messType int, data []byte) error {
 }
 
 // connectConn loop until connected
-func (s *WssSignaler) connectConn() error {
+func (s *WssSignaler) connectConn(count int) error {
 	u, err := url.Parse(s.getURL())
 	if err != nil {
 		return err
 	}
 
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
-	if err != nil {
+	s.closeConn() //.CloseConn()
+	log.Stack(fmt.Sprintf("Connect times: %f", count))
+	if count > 0 {
+		time.Sleep(time.Duration(1 * time.Second))
+	}
+	if count >= 300 {
+		log.Stack("Fail to connect. Close process")
+		err := fmt.Errorf("Fail to connect. Close process")
 		return err
 	}
+
+	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	if err != nil {
+		log.Stack("cannot connect to wss server", err.Error())
+		count++
+		return s.connectConn(count)
+	}
+
+	//conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	//if err != nil {
+	//	return err
+	//}
 	s.setConn(conn)
 
 	// handler here
@@ -205,7 +223,7 @@ func (s *WssSignaler) connectConn() error {
 
 func (s *WssSignaler) restartConn() {
 	s.closeConn()
-	if err := s.connectConn(); err != nil {
+	if err := s.connectConn(0); err != nil {
 		s.pushError(err.Error())
 	}
 }
@@ -376,7 +394,7 @@ func (s *WssSignaler) Close() {
 
 // Start to running wss process
 func (s *WssSignaler) Start() error {
-	if err := s.connectConn(); err != nil {
+	if err := s.connectConn(0); err != nil {
 		return err
 	}
 	go s.serve()
@@ -411,6 +429,35 @@ func (s *WssSignaler) recv() (interface{}, error) {
 	return result, nil
 }
 
+func (s *WssSignaler) Recv() (interface{}, error) {
+
+	var result interface{}
+
+	if conn := s.getConn(); conn != nil {
+		_, resp, err := conn.ReadMessage()
+
+		fmt.Printf("Read from ws: %v", resp)
+
+		if err != nil {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway) {
+				return nil, fmt.Errorf("Websocket closeGoingAway error: %v", err)
+			}
+			return nil, fmt.Errorf("recv err: %v", err)
+		}
+
+		if len(resp) == 0 {
+			return nil, nil
+		}
+
+		err = json.Unmarshal(resp, &result)
+		fmt.Printf("Unmarshall after reading from ws: %v", result)
+		if err != nil {
+			return nil, fmt.Errorf("Signaler recv err: %v", err)
+		}
+	}
+	return result, nil
+}
+
 func (s *WssSignaler) reading() {
 	defer s.restartConn()
 	for {
@@ -422,8 +469,28 @@ func (s *WssSignaler) reading() {
 		if recv == nil {
 			continue
 		}
-		s.pushMsg(recv)
+		//Convert to []interface{}
+		res, ok := recv.([]interface{})
 		recv = nil
+		if ok {
+			if res[0] == "connected" {
+				s.info("reading 1 item from ws to noti successful connection: ", res[1])
+				//Log info of res[1]
+				//tmp, _ := res[1].(map[string]interface{})
+				//s.info("info of connection: ", tmp["memberId"].(string), tmp["roomId"].(string), tmp["token"].(string))
+				continue
+			}
+			if res[0] == "message" {
+				if len(res) < 3 {
+					continue
+				}
+				s.info("reading 1 message from ws ", res[2], " at channel ", res[1])
+				s.pushMsg(res[2])
+				//Log info of res[2]
+				tmp, _ := res[2].(map[string]interface{})
+				s.info("info of message: ", tmp["messageId"], tmp["name"], tmp["replyToMessage"], tmp["time"], tmp["data"])
+			}
+		}
 	}
 }
 
