@@ -229,7 +229,7 @@ func (s *Signaler) connect(count int) error {
 	defer cancel()
 	netConn, _, err := websocket.DefaultDialer.DialContext(ctx, url, nil)
 	if err != nil {
-		log.Warn("*** Connection timeout. Try to reconnect")
+		log.Warn("*** STOMP Connection timeout. Try to reconnect")
 		netConn = nil
 		err = nil
 		ctx = nil
