@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"github.com/nnanhthu/go-stomp-update"
 	"math/rand"
+	"net"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -122,4 +124,31 @@ func recvOneEach(chs ...chan *stomp.Message) (rs []*stomp.Message, ok bool) {
 func SetValueToSignal(inputs ...interface{}) []interface{} {
 	var data []interface{}
 	return append(data, inputs...)
+}
+
+func getTimeout() int {
+	i := 18
+	if interval := os.Getenv("WSS_TIME_OUT"); interval != "" {
+		j, err := strconv.Atoi(interval)
+		if err == nil {
+			i = j
+		}
+	}
+	return i
+}
+
+func isTimeoutError(err error) bool {
+	e, ok := err.(net.Error)
+	return ok && e.Timeout()
+}
+
+func getReconnectLimiting() int {
+	i := 10
+	if interval := os.Getenv("RECONNECT_LIMIT"); interval != "" {
+		j, err := strconv.Atoi(interval)
+		if err == nil {
+			i = j
+		}
+	}
+	return i
 }

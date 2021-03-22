@@ -2,6 +2,7 @@ package signal
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"github.com/gorilla/websocket"
@@ -215,8 +216,8 @@ func (s *Signaler) connect(count int) error {
 	if count > 0 {
 		time.Sleep(time.Duration(1 * time.Second))
 	}
-	if count >= 300 {
-		log.Stack("Fail to connect. Close process")
+	if count >= getReconnectLimiting() {
+		log.Error("Fail to connect. Close process")
 		err := errors.New("Fail to connect. Close process")
 		return err
 	}
@@ -224,12 +225,22 @@ func (s *Signaler) connect(count int) error {
 	token := s.getToken()
 	// Can set readChannelCapacity, writeChannelCapacity through options when calling Dial
 	// Create web socket connection first
-	netConn, _, err := websocket.DefaultDialer.Dial(url, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(getTimeout())*time.Second)
+	defer cancel()
+	netConn, _, err := websocket.DefaultDialer.DialContext(ctx, url, nil)
 	if err != nil {
-		log.Stack("cannot connect to wss server", err.Error())
+		log.Warn("*** Connection timeout. Try to reconnect")
+		netConn = nil
+		err = nil
+		ctx = nil
 		count++
 		return s.connect(count)
 	}
+	//if err != nil {
+	//	log.Stack("cannot connect to wss server", err.Error())
+	//	count++
+	//	return s.connect(count)
+	//}
 	// Now create the stomp connection
 
 	stompConn, err := stomp.Connect(netConn,
@@ -238,7 +249,7 @@ func (s *Signaler) connect(count int) error {
 		stomp.ConnOpt.Header("Authorization", token))
 
 	if err != nil {
-		log.Stack("cannot connect to stomp server", err.Error())
+		log.Warn("cannot connect to stomp server", err.Error())
 		disConnectTimes += 1
 		count++
 		return s.connect(count)
