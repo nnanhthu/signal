@@ -37,13 +37,27 @@ type Signaler struct {
 	processRecvData     func(interface{}) error // to handle process when mess is coming
 	timeout             time.Duration           // timeout to call API, in seconds
 	isClosed            bool                    //
-	mutex               sync.Mutex              // handle concurrent
+	httpClient          *http.Client
+	mutex               sync.Mutex // handle concurrent
 }
 
 // NewSignaler to create new signaler
 func NewSignaler(url string, processRecvData func(interface{}) error, token, publicChannel, privateChannel string, timeout int) *Signaler {
 	//Create random url from root url
 	newUrl := createUrl(url)
+	to := time.Duration(timeout) * time.Second
+	var netTransport = &http.Transport{
+		//Dial: (&net.Dialer{
+		//	Timeout: 5 * time.Second,
+		//}).Dial,
+		TLSHandshakeTimeout: to,
+		MaxConnsPerHost:     20,
+		MaxIdleConnsPerHost: 20,
+	}
+	var netClient = &http.Client{
+		Timeout:   to,
+		Transport: netTransport,
+	}
 	signaler := &Signaler{
 		url:             newUrl,
 		token:           token,
@@ -56,6 +70,7 @@ func NewSignaler(url string, processRecvData func(interface{}) error, token, pub
 		restartChann:    make(chan int, 10),
 		sendMsgChann:    make(chan interface{}, 1000),
 		timeout:         time.Duration(timeout) * time.Second,
+		httpClient:      netClient,
 	}
 	return signaler
 }
@@ -115,6 +130,10 @@ func (s *Signaler) getPrivateSubscription() *stomp.Subscription {
 
 func (s *Signaler) getTimeout() time.Duration {
 	return s.timeout
+}
+
+func (s *Signaler) getClient() *http.Client {
+	return s.httpClient
 }
 
 func (s *Signaler) checkClose() bool {
@@ -439,21 +458,25 @@ func (s *Signaler) pushError(err string) {
 
 // Send message to server through restful API
 func (s *Signaler) SendPostAPI(dest string, data interface{}) (int, error) {
-	timeout := s.getTimeout()
+	//timeout := s.getTimeout()
+	//
+	//var netTransport = &http.Transport{
+	//	//Dial: (&net.Dialer{
+	//	//	Timeout: 5 * time.Second,
+	//	//}).Dial,
+	//	TLSHandshakeTimeout: timeout,
+	//	MaxConnsPerHost: 20,
+	//	MaxIdleConnsPerHost:20,
+	//}
+	//var netClient = &http.Client{
+	//	Timeout:   timeout,
+	//	Transport: netTransport,
+	//}
 	jsonValue, err := json.Marshal(data)
 	if err != nil {
 		return http.StatusServiceUnavailable, err
 	}
-	var netTransport = &http.Transport{
-		//Dial: (&net.Dialer{
-		//	Timeout: 5 * time.Second,
-		//}).Dial,
-		TLSHandshakeTimeout: timeout,
-	}
-	var netClient = &http.Client{
-		Timeout:   timeout,
-		Transport: netTransport,
-	}
+	netClient := s.getClient()
 	request, err := http.NewRequest("POST", dest, bytes.NewBuffer(jsonValue))
 	//request, err := netClient.Post(dest, "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
@@ -478,21 +501,25 @@ func (s *Signaler) SendPostAPI(dest string, data interface{}) (int, error) {
 
 // Send message to get peer conn list through restful API
 func (s *Signaler) GetPeerConnListAPI(dest string, data interface{}) (interface{}, int, error) {
-	timeout := s.getTimeout()
+	//timeout := s.getTimeout()
+	//
+	//var netTransport = &http.Transport{
+	//	//Dial: (&net.Dialer{
+	//	//	Timeout: 5 * time.Second,
+	//	//}).Dial,
+	//	TLSHandshakeTimeout: timeout,
+	//	MaxConnsPerHost: 20,
+	//	MaxIdleConnsPerHost:20,
+	//}
+	//var netClient = &http.Client{
+	//	Timeout:   timeout,
+	//	Transport: netTransport,
+	//}
 	jsonValue, err := json.Marshal(data)
 	if err != nil {
 		return nil, http.StatusServiceUnavailable, err
 	}
-	var netTransport = &http.Transport{
-		//Dial: (&net.Dialer{
-		//	Timeout: 5 * time.Second,
-		//}).Dial,
-		TLSHandshakeTimeout: timeout,
-	}
-	var netClient = &http.Client{
-		Timeout:   timeout,
-		Transport: netTransport,
-	}
+	netClient := s.getClient()
 	request, err := http.NewRequest("POST", dest, bytes.NewBuffer(jsonValue))
 	//request, err := netClient.Post(dest, "application/json", bytes.NewBuffer(jsonValue))
 	if err != nil {
@@ -527,14 +554,17 @@ func (s *Signaler) GetPeerConnListAPI(dest string, data interface{}) (interface{
 }
 
 func (s *Signaler) SendGetAPI(dest string) (interface{}, int, error) {
-	timeout := s.getTimeout()
-	var netTransport = &http.Transport{
-		TLSHandshakeTimeout: timeout,
-	}
-	var netClient = &http.Client{
-		Timeout:   timeout,
-		Transport: netTransport,
-	}
+	//timeout := s.getTimeout()
+	//var netTransport = &http.Transport{
+	//	TLSHandshakeTimeout: timeout,
+	//	MaxConnsPerHost: 20,
+	//	MaxIdleConnsPerHost:20,
+	//}
+	//var netClient = &http.Client{
+	//	Timeout:   timeout,
+	//	Transport: netTransport,
+	//}
+	netClient := s.getClient()
 	request, err := http.NewRequest("GET", dest, nil)
 	if err != nil {
 		return nil, http.StatusServiceUnavailable, err
