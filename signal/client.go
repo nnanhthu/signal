@@ -51,8 +51,8 @@ func NewSignaler(url string, processRecvData func(interface{}) error, token, pub
 		//	Timeout: 5 * time.Second,
 		//}).Dial,
 		TLSHandshakeTimeout: to,
-		MaxConnsPerHost:     20,
-		MaxIdleConnsPerHost: 20,
+		MaxConnsPerHost:     getMaxConnsPerHost(),
+		MaxIdleConnsPerHost: getMaxIdleConnsPerHost(),
 	}
 	var netClient = &http.Client{
 		Timeout:   to,
