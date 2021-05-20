@@ -306,7 +306,7 @@ func (s *Signaler) removePrivateSubscription() {
 // Subscribe to a destination on STOMP Server
 func (s *Signaler) SubscribePublic(dest string) (*stomp.Subscription, error) {
 	id := formatSubscriptionId()
-	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual, stomp.SubscribeOpt.Header(frame.Id, id))
+	sub, err := s.conn.Subscribe(dest, stomp.AckAuto, stomp.SubscribeOpt.Header(frame.Id, id))
 	if err != nil {
 		s.error(err.Error())
 		log.Stack(fmt.Sprintf("cannot subscribe to %s with error %s", dest, err.Error()))
@@ -321,7 +321,7 @@ func (s *Signaler) SubscribePublic(dest string) (*stomp.Subscription, error) {
 
 func (s *Signaler) SubscribePrivate(dest string) (*stomp.Subscription, error) {
 	id := formatSubscriptionId()
-	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual, stomp.SubscribeOpt.Header(frame.Id, id))
+	sub, err := s.conn.Subscribe(dest, stomp.AckAuto, stomp.SubscribeOpt.Header(frame.Id, id))
 	if err != nil {
 		s.error(err.Error())
 		log.Stack(fmt.Sprintf("cannot subscribe to %s with error %s", dest, err.Error()))
@@ -678,41 +678,41 @@ func (s *Signaler) handleMsg(msg *stomp.Message) {
 	if handler := s.getProcessRecvData(); handler != nil {
 		//Get msg body to proceed
 		var res interface{}
-		err := json.Unmarshal(msg.Body, &res)
+		json.Unmarshal(msg.Body, &res)
 		//Add message header before sending Ack
 
 		//s.info(fmt.Sprintf("ADD ACK HEADER TO MESSAGE: %v.", err))
-		msg.Header.Add(frame.Ack, "messageId")
-		if err != nil {
-			log.Stack(fmt.Sprintf("Signaler recv err: %v", err))
-			//Send NACK
-			if conn := s.getConn(); conn != nil {
-				err = conn.Nack(msg)
-				if err != nil {
-					s.error(fmt.Sprintf("NAck msg error: %v.", err))
-				}
-			}
-			return
-		}
-		err = handler(res)
-		if err != nil {
-			//Send NACK
-			if conn := s.getConn(); conn != nil {
-				err = conn.Nack(msg)
-				if err != nil {
-					s.error(fmt.Sprintf("NAck msg error: %v.", err))
-				}
-			}
-		} else {
-			//Send ACK
-			// acknowledge the message
-			if conn := s.getConn(); conn != nil {
-				err = conn.Ack(msg)
-				if err != nil {
-					s.error(fmt.Sprintf("Ack msg error: %v.", err))
-				}
-			}
-		}
+		//msg.Header.Add(frame.Ack, "messageId")
+		//if err != nil {
+		//	log.Stack(fmt.Sprintf("Signaler recv err: %v", err))
+		//	//Send NACK
+		//	if conn := s.getConn(); conn != nil {
+		//		err = conn.Nack(msg)
+		//		if err != nil {
+		//			s.error(fmt.Sprintf("NAck msg error: %v.", err))
+		//		}
+		//	}
+		//	return
+		//}
+		//err = handler(res)
+		//if err != nil {
+		//	//Send NACK
+		//	if conn := s.getConn(); conn != nil {
+		//		err = conn.Nack(msg)
+		//		if err != nil {
+		//			s.error(fmt.Sprintf("NAck msg error: %v.", err))
+		//		}
+		//	}
+		//} else {
+		//	//Send ACK
+		//	// acknowledge the message
+		//	if conn := s.getConn(); conn != nil {
+		//		err = conn.Ack(msg)
+		//		if err != nil {
+		//			s.error(fmt.Sprintf("Ack msg error: %v.", err))
+		//		}
+		//	}
+		//}
 	}
 }
 
