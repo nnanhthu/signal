@@ -678,7 +678,7 @@ func (s *Signaler) handleMsg(msg *stomp.Message) {
 	if handler := s.getProcessRecvData(); handler != nil {
 		//Get msg body to proceed
 		var res interface{}
-		json.Unmarshal(msg.Body, &res)
+		err := json.Unmarshal(msg.Body, &res)
 		//Add message header before sending Ack
 
 		//s.info(fmt.Sprintf("ADD ACK HEADER TO MESSAGE: %v.", err))
@@ -694,7 +694,9 @@ func (s *Signaler) handleMsg(msg *stomp.Message) {
 		//	}
 		//	return
 		//}
-		//err = handler(res)
+		if err == nil {
+			handler(res)
+		}
 		//if err != nil {
 		//	//Send NACK
 		//	if conn := s.getConn(); conn != nil {
