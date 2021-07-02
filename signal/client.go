@@ -18,27 +18,28 @@ import (
 	"time"
 )
 
-var disConnectTimes = 0
-
 // Signaler to connect signal
 type Signaler struct {
-	url                 string
-	token               string      // token to authenticate with STOMP server
-	conn                *stomp.Conn // handle connection
-	publicChannel       string      // Keep info of channel to resubscribe
-	privateChannel      string
-	publicSubscription  *stomp.Subscription     // handle public subscription
-	privateSubscription *stomp.Subscription     // handle private subscription
-	errChan             chan string             // err to reconnect
-	closeChann          chan int                // close all sk
-	restartChann        chan int                // to handler restart msg
-	msgChann            chan *stomp.Message     // msg chann
-	sendMsgChann        chan interface{}        // send msg
-	processRecvData     func(interface{}) error // to handle process when mess is coming
-	timeout             time.Duration           // timeout to call API, in seconds
-	isClosed            bool                    //
-	httpClient          *http.Client
-	mutex               sync.Mutex // handle concurrent
+	url                      string
+	token                    string      // token to authenticate with STOMP server
+	conn                     *stomp.Conn // handle connection
+	publicChannel            string      // Keep info of channel to resubscribe
+	privateChannel           string
+	publicSubscription       *stomp.Subscription     // handle public subscription
+	privateSubscription      *stomp.Subscription     // handle private subscription
+	errChan                  chan string             // err to reconnect
+	closeChann               chan int                // close all sk
+	restartChann             chan int                // to handler restart msg
+	msgChann                 chan *stomp.Message     // msg chann
+	sendMsgChann             chan interface{}        // send msg
+	processRecvData          func(interface{}) error // to handle process when mess is coming
+	timeout                  time.Duration           // timeout to call API, in seconds
+	isClosed                 bool                    //
+	httpClient               *http.Client
+	disConnectTimes          int
+	publicSubscriptionTimes  int
+	privateSubscriptionTimes int
+	mutex                    sync.Mutex // handle concurrent
 }
 
 // NewSignaler to create new signaler
@@ -59,18 +60,21 @@ func NewSignaler(url string, processRecvData func(interface{}) error, token, pub
 		Transport: netTransport,
 	}
 	signaler := &Signaler{
-		url:             newUrl,
-		token:           token,
-		publicChannel:   publicChannel,
-		privateChannel:  privateChannel,
-		processRecvData: processRecvData,
-		closeChann:      make(chan int),
-		msgChann:        make(chan *stomp.Message, 10000),
-		errChan:         make(chan string, 10),
-		restartChann:    make(chan int, 10),
-		sendMsgChann:    make(chan interface{}, 1000),
-		timeout:         time.Duration(timeout) * time.Second,
-		httpClient:      netClient,
+		url:                      newUrl,
+		token:                    token,
+		publicChannel:            publicChannel,
+		privateChannel:           privateChannel,
+		processRecvData:          processRecvData,
+		closeChann:               make(chan int),
+		msgChann:                 make(chan *stomp.Message, 10000),
+		errChan:                  make(chan string, 10),
+		restartChann:             make(chan int, 10),
+		sendMsgChann:             make(chan interface{}, 1000),
+		timeout:                  time.Duration(timeout) * time.Second,
+		httpClient:               netClient,
+		disConnectTimes:          0,
+		publicSubscriptionTimes:  0,
+		privateSubscriptionTimes: 0,
 	}
 	return signaler
 }
@@ -136,6 +140,18 @@ func (s *Signaler) getClient() *http.Client {
 	return s.httpClient
 }
 
+func (s *Signaler) getDisconnectTimes() int {
+	return s.disConnectTimes
+}
+
+func (s *Signaler) getPublicSubTimes() int {
+	return s.publicSubscriptionTimes
+}
+
+func (s *Signaler) getPrivateSubTimes() int {
+	return s.privateSubscriptionTimes
+}
+
 func (s *Signaler) checkClose() bool {
 	return s.isClosed
 }
@@ -164,6 +180,24 @@ func (s *Signaler) setPrivateChannel(privateChannel string) {
 	s.privateChannel = privateChannel
 }
 
+func (s *Signaler) setDisconnectTimes(times int) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.disConnectTimes = times
+}
+
+func (s *Signaler) setPublicSubTimes(times int) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.publicSubscriptionTimes = times
+}
+
+func (s *Signaler) setPrivateSubTimes(times int) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	s.privateSubscriptionTimes = times
+}
+
 // Relating to connection
 func (s *Signaler) setConn(conn *stomp.Conn) {
 	s.mutex.Lock()
@@ -178,15 +212,159 @@ func (s *Signaler) removeConn() {
 }
 
 func (s *Signaler) CloseConn() {
-	if conn := s.getConn(); conn != nil {
-		if err := conn.Disconnect(); err != nil {
-			disConnectTimes += 1
-			s.error(err.Error())
+	disconnectTimes := s.getDisconnectTimes()
+	if disconnectTimes < 3 {
+		ok := s.disconnect()
+		if ok {
+			s.removeConn()
+			disconnectTimes = 0
+			s.setDisconnectTimes(disconnectTimes)
+			return
 		}
+		disconnectTimes += 1
+		s.setDisconnectTimes(disconnectTimes)
+		s.CloseConn()
+	} else {
+		if conn := s.getConn(); conn != nil {
+			err := conn.MustDisconnect()
+			if err != nil {
+				s.error(fmt.Errorf("MustDisconnect to STOMP got error: %v", err.Error()))
+			}
+		}
+		s.removeConn()
+		disconnectTimes = 0
+		s.setDisconnectTimes(disconnectTimes)
 	}
-	s.removeConn()
 }
 
+func (s *Signaler) disconnect() bool {
+	if conn := s.getConn(); conn != nil {
+		tempChan := make(chan bool, 1)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		go func() {
+			err := conn.Disconnect()
+			if err != nil {
+				s.error(fmt.Errorf("Disconnect to STOMP got error: %v", err.Error()))
+				return
+			}
+			tempChan <- true
+		}()
+
+		go func() {
+			select {
+			case <-ctx.Done():
+				s.error(fmt.Errorf("Timeout when Disconnect to STOMP"))
+				tempChan <- false
+				return
+			}
+		}()
+
+		temp := <-tempChan
+		return temp
+	}
+	return true
+}
+
+func (s *Signaler) SubscribePublic(dest string) (*stomp.Subscription, error) {
+	publicSubTimes := s.getPublicSubTimes()
+	if publicSubTimes < 3 {
+		sub := s.subscribe(dest)
+		if sub != nil {
+			s.setPublicSubscription(sub)
+			publicSubTimes = 0
+			s.setPublicSubTimes(publicSubTimes)
+			return sub, nil
+		}
+		publicSubTimes += 1
+		s.setPublicSubTimes(publicSubTimes)
+		return s.SubscribePublic(dest)
+	} else {
+		publicSubTimes = 0
+		s.setPublicSubTimes(publicSubTimes)
+		return nil, fmt.Errorf("Can't subscribe to public channel %s after retry 2 times", dest)
+	}
+}
+
+func (s *Signaler) subscribe(dest string) *stomp.Subscription {
+	tempChan := make(chan *stomp.Subscription, 1)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	go func() {
+		id := formatSubscriptionId()
+		sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual, stomp.SubscribeOpt.Header(frame.Id, id))
+		if err != nil {
+			s.error(fmt.Sprintf("cannot subscribe to %s with error %s", dest, err.Error()))
+			return
+		}
+		tempChan <- sub
+	}()
+
+	go func() {
+		select {
+		case <-ctx.Done():
+			s.error(fmt.Errorf("Timeout when subscribe to STOMP"))
+			tempChan <- nil
+			return
+		}
+	}()
+
+	temp := <-tempChan
+	return temp
+}
+
+func (s *Signaler) SubscribePrivate(dest string) (*stomp.Subscription, error) {
+	privateSubTimes := s.getPrivateSubTimes()
+	if privateSubTimes < 3 {
+		sub := s.subscribe(dest)
+		if sub != nil {
+			s.setPrivateSubscription(sub)
+			privateSubTimes = 0
+			s.setPrivateSubTimes(privateSubTimes)
+			return sub, nil
+		}
+		privateSubTimes += 1
+		s.setPrivateSubTimes(privateSubTimes)
+		return s.SubscribePublic(dest)
+	} else {
+		privateSubTimes = 0
+		s.setPrivateSubTimes(privateSubTimes)
+		return nil, fmt.Errorf("Can't subscribe to private channel %s after retry 2 times", dest)
+	}
+}
+
+// Subscribe to a destination on STOMP Server
+//func (s *Signaler) SubscribePublic(dest string) (*stomp.Subscription, error) {
+//	id := formatSubscriptionId()
+//	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual, stomp.SubscribeOpt.Header(frame.Id, id))
+//	if err != nil {
+//		s.error(err.Error())
+//		log.Stack(fmt.Sprintf("cannot subscribe to %s with error %s", dest, err.Error()))
+//		//disConnectTimes += 1
+//		// Reconnect because at this time, server may be disconnect to client
+//		s.RestartConn()
+//		return nil, err
+//	}
+//	s.setPublicSubscription(sub)
+//	return sub, nil
+//}
+
+//func (s *Signaler) SubscribePrivate(dest string) (*stomp.Subscription, error) {
+//	id := formatSubscriptionId()
+//	sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual, stomp.SubscribeOpt.Header(frame.Id, id))
+//	if err != nil {
+//		s.error(err.Error())
+//		log.Stack(fmt.Sprintf("cannot subscribe to %s with error %s", dest, err.Error()))
+//		//disConnectTimes += 1
+//		// Reconnect because at this time, server may be disconnect to client
+//		s.RestartConn()
+//		return nil, err
+//	}
+//	s.setPrivateSubscription(sub)
+//	return sub, nil
+//}
 //Connect to stomp
 //Subscribe 2 channels for message broadcast and private message
 //Listen to read data from 2 channels
@@ -200,7 +378,7 @@ func (s *Signaler) ConnectAndSubscribe() error {
 	if publicChannel := s.getPublicChannel(); len(publicChannel) > 0 {
 		start := time.Now().UnixNano() / int64(time.Millisecond) //in ms
 		if _, err := s.SubscribePublic(publicChannel); err != nil {
-			return err
+			return s.RestartConn()
 		}
 		log.Info(fmt.Sprintf("Subscribe successfully, start reading: %s", publicChannel))
 		end := time.Now().UnixNano() / int64(time.Millisecond) //in ms
@@ -210,7 +388,7 @@ func (s *Signaler) ConnectAndSubscribe() error {
 	if privateChannel := s.getPrivateChannel(); len(privateChannel) > 0 {
 		start := time.Now().UnixNano() / int64(time.Millisecond) //in ms
 		if _, err := s.SubscribePrivate(privateChannel); err != nil {
-			return err
+			return s.RestartConn()
 		}
 		log.Info(fmt.Sprintf("Subscribe successfully, start reading: %s", privateChannel))
 		end := time.Now().UnixNano() / int64(time.Millisecond) //in ms
@@ -221,12 +399,13 @@ func (s *Signaler) ConnectAndSubscribe() error {
 	return nil
 }
 
-func (s *Signaler) RestartConn() {
+func (s *Signaler) RestartConn() error {
 	s.CloseConn()
+	return s.ConnectAndSubscribe()
 
-	if err := s.ConnectAndSubscribe(); err != nil {
-		s.pushError(err.Error())
-	}
+	//if err := s.ConnectAndSubscribe(); err != nil {
+	//	s.pushError(err.Error())
+	//}
 }
 
 func (s *Signaler) connect(count int) error {
@@ -269,7 +448,7 @@ func (s *Signaler) connect(count int) error {
 
 	if err != nil {
 		log.Warn("cannot connect to stomp server", err.Error())
-		disConnectTimes += 1
+		//disConnectTimes += 1
 		count++
 		return s.connect(count)
 	}
@@ -303,60 +482,75 @@ func (s *Signaler) removePrivateSubscription() {
 	s.privateSubscription = nil
 }
 
-// Subscribe to a destination on STOMP Server
-func (s *Signaler) SubscribePublic(dest string) (*stomp.Subscription, error) {
-	id := formatSubscriptionId()
-	sub, err := s.conn.Subscribe(dest, stomp.AckAuto, stomp.SubscribeOpt.Header(frame.Id, id))
-	if err != nil {
-		s.error(err.Error())
-		log.Stack(fmt.Sprintf("cannot subscribe to %s with error %s", dest, err.Error()))
-		disConnectTimes += 1
-		// Reconnect because at this time, server may be disconnect to client
-		s.RestartConn()
-		return nil, err
-	}
-	s.setPublicSubscription(sub)
-	return sub, nil
-}
-
-func (s *Signaler) SubscribePrivate(dest string) (*stomp.Subscription, error) {
-	id := formatSubscriptionId()
-	sub, err := s.conn.Subscribe(dest, stomp.AckAuto, stomp.SubscribeOpt.Header(frame.Id, id))
-	if err != nil {
-		s.error(err.Error())
-		log.Stack(fmt.Sprintf("cannot subscribe to %s with error %s", dest, err.Error()))
-		disConnectTimes += 1
-		// Reconnect because at this time, server may be disconnect to client
-		s.RestartConn()
-		return nil, err
-	}
-	s.setPrivateSubscription(sub)
-	return sub, nil
-}
 func (s *Signaler) Unsubscribe() {
+	s.info("Start unsubscribe STOMP channels")
 	s.unsubscribePublic()
 	s.unsubscribePrivate()
+	s.info("Finish unsubscribe STOMP channels")
 }
 
-// Unsubscribe from a destination on STOMP Server
-func (s *Signaler) unsubscribePublic() {
+func (s *Signaler) unsubscribePublic() bool {
 	if sub := s.getPublicSubscription(); sub != nil {
-		if err := sub.Unsubscribe(); err != nil {
-			disConnectTimes += 1
-			s.error(err.Error())
-		}
+		tempChan := make(chan bool, 1)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		go func() {
+			err := sub.Unsubscribe()
+			if err != nil {
+				s.error(fmt.Errorf("UnsubscribePublic to STOMP got error: %v", err.Error()))
+				return
+			}
+			tempChan <- true
+		}()
+
+		go func() {
+			select {
+			case <-ctx.Done():
+				s.error(fmt.Errorf("Timeout when UnsubscribePublic to STOMP"))
+				tempChan <- false
+				return
+			}
+		}()
+
+		temp := <-tempChan
+		s.removePublicSubscription()
+		return temp
 	}
 	s.removePublicSubscription()
+	return true
 }
 
-func (s *Signaler) unsubscribePrivate() {
+func (s *Signaler) unsubscribePrivate() bool {
 	if sub := s.getPrivateSubscription(); sub != nil {
-		if err := sub.Unsubscribe(); err != nil {
-			disConnectTimes += 1
-			s.error(err.Error())
-		}
+		tempChan := make(chan bool, 1)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		defer cancel()
+
+		go func() {
+			err := sub.Unsubscribe()
+			if err != nil {
+				s.error(fmt.Errorf("UnsubscribePrivate to STOMP got error: %v", err.Error()))
+				return
+			}
+			tempChan <- true
+		}()
+
+		go func() {
+			select {
+			case <-ctx.Done():
+				s.error(fmt.Errorf("Timeout when UnsubscribePrivate to STOMP"))
+				tempChan <- false
+				return
+			}
+		}()
+
+		temp := <-tempChan
+		s.removePrivateSubscription()
+		return temp
 	}
 	s.removePrivateSubscription()
+	return true
 }
 
 // Check subscription and connection
@@ -608,7 +802,7 @@ func (s *Signaler) Send(dest string, contentType string, data []byte) error {
 		defer s.mutex.Unlock()
 		//if err := conn.Send(dest, contentType, data, stomp.SendOpt.Receipt); err != nil {
 		if err := conn.Send(dest, contentType, data); err != nil {
-			disConnectTimes += 1
+			//disConnectTimes += 1
 			//Reconnect because after server proceed failed, it'll disconnect to client
 			s.RestartConn()
 			return err
@@ -671,6 +865,66 @@ func (s *Signaler) IsZeroOfUnderlyingType(x interface{}) bool {
 	return x == nil || reflect.DeepEqual(x, reflect.Zero(reflect.TypeOf(x)).Interface())
 }
 
+func (s *Signaler) sendACK(msg *stomp.Message) bool {
+	if conn := s.getConn(); conn != nil {
+		tempChan := make(chan bool, 1)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		go func() {
+			err := conn.Ack(msg)
+			if err != nil {
+				s.error(fmt.Errorf("Send ACK to STOMP got error: %v", err.Error()))
+				return
+			}
+			tempChan <- true
+		}()
+
+		go func() {
+			select {
+			case <-ctx.Done():
+				s.error(fmt.Errorf("Timeout when send ACK"))
+				tempChan <- false
+				return
+			}
+		}()
+
+		temp := <-tempChan
+		return temp
+	}
+	return true
+}
+
+func (s *Signaler) sendNACK(msg *stomp.Message) bool {
+	if conn := s.getConn(); conn != nil {
+		tempChan := make(chan bool, 1)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		go func() {
+			err := conn.Nack(msg)
+			if err != nil {
+				s.error(fmt.Errorf("Send NACK to STOMP got error: %v", err.Error()))
+				return
+			}
+			tempChan <- true
+		}()
+
+		go func() {
+			select {
+			case <-ctx.Done():
+				s.error(fmt.Errorf("Timeout when send NACK"))
+				tempChan <- false
+				return
+			}
+		}()
+
+		temp := <-tempChan
+		return temp
+	}
+	return true
+}
+
 func (s *Signaler) handleMsg(msg *stomp.Message) {
 	if msg == nil {
 		return
@@ -682,39 +936,22 @@ func (s *Signaler) handleMsg(msg *stomp.Message) {
 		//Add message header before sending Ack
 
 		//s.info(fmt.Sprintf("ADD ACK HEADER TO MESSAGE: %v.", err))
-		//msg.Header.Add(frame.Ack, "messageId")
-		//if err != nil {
-		//	log.Stack(fmt.Sprintf("Signaler recv err: %v", err))
-		//	//Send NACK
-		//	if conn := s.getConn(); conn != nil {
-		//		err = conn.Nack(msg)
-		//		if err != nil {
-		//			s.error(fmt.Sprintf("NAck msg error: %v.", err))
-		//		}
-		//	}
-		//	return
-		//}
-		if err == nil {
-			handler(res)
+		msg.Header.Add(frame.Ack, "messageId")
+		if err != nil {
+			log.Stack(fmt.Sprintf("Signaler recv err: %v", err))
+			//Send NACK
+			s.sendNACK(msg)
+			return
 		}
-		//if err != nil {
-		//	//Send NACK
-		//	if conn := s.getConn(); conn != nil {
-		//		err = conn.Nack(msg)
-		//		if err != nil {
-		//			s.error(fmt.Sprintf("NAck msg error: %v.", err))
-		//		}
-		//	}
-		//} else {
-		//	//Send ACK
-		//	// acknowledge the message
-		//	if conn := s.getConn(); conn != nil {
-		//		err = conn.Ack(msg)
-		//		if err != nil {
-		//			s.error(fmt.Sprintf("Ack msg error: %v.", err))
-		//		}
-		//	}
-		//}
+		err = handler(res)
+		if err != nil {
+			//Send NACK
+			s.sendNACK(msg)
+		} else {
+			//Send ACK
+			// acknowledge the message
+			s.sendACK(msg)
+		}
 	}
 }
 
@@ -750,7 +987,7 @@ func (s *Signaler) ReceiveFromPublic() (*stomp.Message, error) {
 		resp, err := sub.Read()
 
 		if err != nil {
-			disConnectTimes += 1
+			//disConnectTimes += 1
 			return nil, fmt.Errorf("recv err: %v", err)
 		}
 
@@ -775,7 +1012,7 @@ func (s *Signaler) ReceiveFromPrivate() (*stomp.Message, error) {
 		resp, err := sub.Read()
 
 		if err != nil {
-			disConnectTimes += 1
+			//disConnectTimes += 1
 			return nil, fmt.Errorf("recv err: %v", err)
 		}
 
