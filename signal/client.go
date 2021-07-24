@@ -241,14 +241,17 @@ func (s *Signaler) CloseConn() {
 func (s *Signaler) disconnect() bool {
 	if conn := s.getConn(); conn != nil {
 		tempChan := make(chan bool, 1)
+		done := make(chan int, 0)
 		to := time.Duration(getStompTimeout()) * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
 
 		go func() {
 			err := conn.Disconnect()
+			done <- 1
 			if err != nil {
 				s.error(fmt.Errorf("Disconnect to STOMP got error: %v", err.Error()))
+				tempChan <- true
 				return
 			}
 			tempChan <- true
@@ -259,7 +262,9 @@ func (s *Signaler) disconnect() bool {
 			case <-ctx.Done():
 				s.error(fmt.Errorf("Timeout when Disconnect to STOMP"))
 				tempChan <- false
-				return
+				break
+			case <-done:
+				cancel()
 			}
 		}()
 
@@ -292,6 +297,7 @@ func (s *Signaler) SubscribePublic(dest string) (*stomp.Subscription, error) {
 
 func (s *Signaler) subscribe(dest string) *stomp.Subscription {
 	tempChan := make(chan *stomp.Subscription, 1)
+	done := make(chan int, 0)
 	to := time.Duration(getStompTimeout()) * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), to)
 	defer cancel()
@@ -299,8 +305,10 @@ func (s *Signaler) subscribe(dest string) *stomp.Subscription {
 	go func() {
 		id := formatSubscriptionId()
 		sub, err := s.conn.Subscribe(dest, stomp.AckClientIndividual, stomp.SubscribeOpt.Header(frame.Id, id))
+		done <- 1
 		if err != nil {
 			s.error(fmt.Sprintf("cannot subscribe to %s with error %s", dest, err.Error()))
+			tempChan <- nil
 			return
 		}
 		tempChan <- sub
@@ -311,7 +319,9 @@ func (s *Signaler) subscribe(dest string) *stomp.Subscription {
 		case <-ctx.Done():
 			s.error(fmt.Errorf("Timeout when subscribe to STOMP"))
 			tempChan <- nil
-			return
+			break
+		case <-done:
+			cancel()
 		}
 	}()
 
@@ -497,14 +507,17 @@ func (s *Signaler) Unsubscribe() {
 func (s *Signaler) unsubscribePublic() bool {
 	if sub := s.getPublicSubscription(); sub != nil {
 		tempChan := make(chan bool, 1)
+		done := make(chan int, 0)
 		to := time.Duration(getStompTimeout()) * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
 
 		go func() {
 			err := sub.Unsubscribe()
+			done <- 1
 			if err != nil {
 				s.error(fmt.Errorf("UnsubscribePublic to STOMP got error: %v", err.Error()))
+				tempChan <- true
 				return
 			}
 			tempChan <- true
@@ -515,7 +528,9 @@ func (s *Signaler) unsubscribePublic() bool {
 			case <-ctx.Done():
 				s.error(fmt.Errorf("Timeout when UnsubscribePublic to STOMP"))
 				tempChan <- false
-				return
+				break
+			case <-done:
+				cancel()
 			}
 		}()
 
@@ -530,14 +545,17 @@ func (s *Signaler) unsubscribePublic() bool {
 func (s *Signaler) unsubscribePrivate() bool {
 	if sub := s.getPrivateSubscription(); sub != nil {
 		tempChan := make(chan bool, 1)
+		done := make(chan int, 0)
 		to := time.Duration(getStompTimeout()) * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
 
 		go func() {
 			err := sub.Unsubscribe()
+			done <- 1
 			if err != nil {
 				s.error(fmt.Errorf("UnsubscribePrivate to STOMP got error: %v", err.Error()))
+				tempChan <- true
 				return
 			}
 			tempChan <- true
@@ -548,7 +566,9 @@ func (s *Signaler) unsubscribePrivate() bool {
 			case <-ctx.Done():
 				s.error(fmt.Errorf("Timeout when UnsubscribePrivate to STOMP"))
 				tempChan <- false
-				return
+				break
+			case <-done:
+				cancel()
 			}
 		}()
 
@@ -877,14 +897,17 @@ func (s *Signaler) sendACK(msg *stomp.Message) bool {
 	s.info("Start sending ACK after processing msg")
 	if conn := s.getConn(); conn != nil {
 		tempChan := make(chan bool, 1)
+		done := make(chan int, 0)
 		to := time.Duration(getStompTimeout()) * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
 
 		go func() {
 			err := conn.Ack(msg)
+			done <- 1
 			if err != nil {
 				s.error(fmt.Errorf("Send ACK to STOMP got error: %v", err.Error()))
+				tempChan <- true
 				return
 			}
 			s.info("Sent ACK successfully")
@@ -896,7 +919,9 @@ func (s *Signaler) sendACK(msg *stomp.Message) bool {
 			case <-ctx.Done():
 				s.error(fmt.Errorf("Timeout when send ACK"))
 				tempChan <- false
-				return
+				break
+			case <-done:
+				cancel()
 			}
 		}()
 
@@ -910,14 +935,17 @@ func (s *Signaler) sendNACK(msg *stomp.Message) bool {
 	s.info("Start sending NACK after processing msg")
 	if conn := s.getConn(); conn != nil {
 		tempChan := make(chan bool, 1)
+		done := make(chan int, 0)
 		to := time.Duration(getStompTimeout()) * time.Second
 		ctx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
 
 		go func() {
 			err := conn.Nack(msg)
+			done <- 1
 			if err != nil {
 				s.error(fmt.Errorf("Send NACK to STOMP got error: %v", err.Error()))
+				tempChan <- true
 				return
 			}
 			s.info("Sent NACK successfully")
@@ -929,7 +957,9 @@ func (s *Signaler) sendNACK(msg *stomp.Message) bool {
 			case <-ctx.Done():
 				s.error(fmt.Errorf("Timeout when send NACK"))
 				tempChan <- false
-				return
+				break
+			case <-done:
+				cancel()
 			}
 		}()
 
