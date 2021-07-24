@@ -835,6 +835,7 @@ func (s *Signaler) pushSendMsg(msg interface{}) {
 // pushMsg call handle msg callback (after receiving msg from STOMP server)
 func (s *Signaler) pushMsg(msg *stomp.Message, data interface{}) {
 	if s.checkClose() && (s.getMsgchann() != nil) {
+		s.info("Signal is closed. Close msg chanel to reset to nil and don't receive msg anymore.")
 		s.closeMsgChann()
 		return
 	}
