@@ -137,6 +137,17 @@ func getTimeout() int {
 	return i
 }
 
+func getStompTimeout() int {
+	i := 5
+	if interval := os.Getenv("SUBSCRIPTION_TIME_OUT"); interval != "" {
+		j, err := strconv.Atoi(interval)
+		if err == nil {
+			i = j
+		}
+	}
+	return i
+}
+
 func isTimeoutError(err error) bool {
 	e, ok := err.(net.Error)
 	return ok && e.Timeout()

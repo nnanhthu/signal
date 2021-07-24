@@ -65,7 +65,7 @@ func NewSignaler(url string, processRecvData func(interface{}) error, token, pub
 		publicChannel:            publicChannel,
 		privateChannel:           privateChannel,
 		processRecvData:          processRecvData,
-		closeChann:               make(chan int),
+		closeChann:               make(chan int, 1),
 		msgChann:                 make(chan *stomp.Message, 10000),
 		errChan:                  make(chan string, 10),
 		restartChann:             make(chan int, 10),
@@ -213,6 +213,7 @@ func (s *Signaler) removeConn() {
 
 func (s *Signaler) CloseConn() {
 	disconnectTimes := s.getDisconnectTimes()
+	s.error("Number of disconnect to STOMP failed: %d", disconnectTimes)
 	if disconnectTimes < 3 {
 		ok := s.disconnect()
 		if ok {
@@ -240,7 +241,8 @@ func (s *Signaler) CloseConn() {
 func (s *Signaler) disconnect() bool {
 	if conn := s.getConn(); conn != nil {
 		tempChan := make(chan bool, 1)
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		to := time.Duration(getStompTimeout()) * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
 
 		go func() {
@@ -269,7 +271,8 @@ func (s *Signaler) disconnect() bool {
 
 func (s *Signaler) SubscribePublic(dest string) (*stomp.Subscription, error) {
 	publicSubTimes := s.getPublicSubTimes()
-	if publicSubTimes < 3 {
+	s.error("Number of subcribing public to STOMP failed: %d", publicSubTimes)
+	if publicSubTimes < 30 {
 		sub := s.subscribe(dest)
 		if sub != nil {
 			s.setPublicSubscription(sub)
@@ -283,13 +286,14 @@ func (s *Signaler) SubscribePublic(dest string) (*stomp.Subscription, error) {
 	} else {
 		publicSubTimes = 0
 		s.setPublicSubTimes(publicSubTimes)
-		return nil, fmt.Errorf("Can't subscribe to public channel %s after retry 2 times", dest)
+		return nil, fmt.Errorf("Can't subscribe to public channel %s after retry 30 times", dest)
 	}
 }
 
 func (s *Signaler) subscribe(dest string) *stomp.Subscription {
 	tempChan := make(chan *stomp.Subscription, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	to := time.Duration(getStompTimeout()) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), to)
 	defer cancel()
 
 	go func() {
@@ -317,7 +321,8 @@ func (s *Signaler) subscribe(dest string) *stomp.Subscription {
 
 func (s *Signaler) SubscribePrivate(dest string) (*stomp.Subscription, error) {
 	privateSubTimes := s.getPrivateSubTimes()
-	if privateSubTimes < 3 {
+	s.error("Number of subscribing private to STOMP failed: %d", privateSubTimes)
+	if privateSubTimes < 30 {
 		sub := s.subscribe(dest)
 		if sub != nil {
 			s.setPrivateSubscription(sub)
@@ -331,7 +336,7 @@ func (s *Signaler) SubscribePrivate(dest string) (*stomp.Subscription, error) {
 	} else {
 		privateSubTimes = 0
 		s.setPrivateSubTimes(privateSubTimes)
-		return nil, fmt.Errorf("Can't subscribe to private channel %s after retry 2 times", dest)
+		return nil, fmt.Errorf("Can't subscribe to private channel %s after retry 30 times", dest)
 	}
 }
 
@@ -492,7 +497,8 @@ func (s *Signaler) Unsubscribe() {
 func (s *Signaler) unsubscribePublic() bool {
 	if sub := s.getPublicSubscription(); sub != nil {
 		tempChan := make(chan bool, 1)
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		to := time.Duration(getStompTimeout()) * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
 
 		go func() {
@@ -524,7 +530,8 @@ func (s *Signaler) unsubscribePublic() bool {
 func (s *Signaler) unsubscribePrivate() bool {
 	if sub := s.getPrivateSubscription(); sub != nil {
 		tempChan := make(chan bool, 1)
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		to := time.Duration(getStompTimeout()) * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
 
 		go func() {
@@ -866,9 +873,11 @@ func (s *Signaler) IsZeroOfUnderlyingType(x interface{}) bool {
 }
 
 func (s *Signaler) sendACK(msg *stomp.Message) bool {
+	s.info("Start sending ACK after processing msg")
 	if conn := s.getConn(); conn != nil {
 		tempChan := make(chan bool, 1)
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		to := time.Duration(getStompTimeout()) * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
 
 		go func() {
@@ -877,6 +886,7 @@ func (s *Signaler) sendACK(msg *stomp.Message) bool {
 				s.error(fmt.Errorf("Send ACK to STOMP got error: %v", err.Error()))
 				return
 			}
+			s.info("Sent ACK successfully")
 			tempChan <- true
 		}()
 
@@ -896,9 +906,11 @@ func (s *Signaler) sendACK(msg *stomp.Message) bool {
 }
 
 func (s *Signaler) sendNACK(msg *stomp.Message) bool {
+	s.info("Start sending NACK after processing msg")
 	if conn := s.getConn(); conn != nil {
 		tempChan := make(chan bool, 1)
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		to := time.Duration(getStompTimeout()) * time.Second
+		ctx, cancel := context.WithTimeout(context.Background(), to)
 		defer cancel()
 
 		go func() {
@@ -907,6 +919,7 @@ func (s *Signaler) sendNACK(msg *stomp.Message) bool {
 				s.error(fmt.Errorf("Send NACK to STOMP got error: %v", err.Error()))
 				return
 			}
+			s.info("Sent NACK successfully")
 			tempChan <- true
 		}()
 
@@ -967,10 +980,12 @@ func (s *Signaler) pushRestart() {
 
 func (s *Signaler) pushCloseSignal() {
 	if s.checkClose() && (s.getClosechann() != nil) {
+		s.error("Error when pushing to close STOMP signal\n")
 		s.closeCloseChann()
 		return
 	}
 	if chann := s.getClosechann(); chann != nil {
+		s.info("Pushed to Close STOMP signal\n")
 		chann <- 1
 	}
 }
@@ -1131,6 +1146,7 @@ func (s *Signaler) serve(dest string) {
 }
 
 func (s *Signaler) close() {
+	s.info("Start closing livestream signal\n")
 	s.setClose(true)
 	s.Unsubscribe()
 	s.CloseConn()
@@ -1143,7 +1159,9 @@ func (s *Signaler) SendMsg(data interface{}) {
 
 // Close to running wss process
 func (s *Signaler) Close() {
-	s.pushCloseSignal()
+	s.info(fmt.Sprintf("Push to close channel to disconnect to STOMP\n"))
+	//s.pushCloseSignal()
+	s.close()
 }
 
 // Start to running wss process
